@@ -45,7 +45,7 @@ package require dns
 # Bindings
 bind join - *!*@* ::zapbl::onJoin
 bind dcc -|- zapblcheck ::zapbl::dccCheck
-bind dcc -|- help ::zapbl::help
+bind dcc -|- help ::stderreu::help
 
 
 namespace eval ::zapbl {
@@ -71,7 +71,9 @@ namespace eval ::zapbl {
         }
     }
 
+    ###
     # Functions
+    ###
     proc onJoin { nick host handle channel } {
         # Lower case channel
         set channel [string tolower $channel]
@@ -159,6 +161,18 @@ namespace eval ::zapbl {
         }
     }
 
+    # This function will replace %keywords% with supplied substitutes
+    proc template { text subs } {
+        foreach {arg1 arg2} $subs {
+            regsub -all -- $arg1 $text $arg2 text
+        }
+        return $text
+    }
+
+    ###
+    # Getters
+    ###
+
     # Getter to retrieve a reason from the ini file
     proc getDnsblReason { bl address } {
         # Last octet in $address is the reason matched against reply:X
@@ -179,31 +193,60 @@ namespace eval ::zapbl {
         }
         return ""
     }
+}
 
-    # This function will replace %keywords% with supplied substitutes
-    proc template { text subs } {
-        foreach {arg1 arg2} $subs {
-            regsub -all -- $arg1 $text $arg2 text
-        }
-        return $text
+namespace eval ::stderreu {
+    variable helpfuncs
+
+    if {![info exists ::stderreu::helpfuncs] || ![dict exists $::stderreu::helpfuncs zapdnsbl]} {
+        dict set ::stderreu::helpfuncs zapdnsbl [list zapdnsbl zapblcheck]
     }
 
-    # Builtin help function
-    proc help { hand idx args } {
-        switch -- $args {
-            zapblcheck {
-                putidx $idx "### \002zapblcheck <host>"
+    proc zapdnsbl { idx } {
+        putidx $idx "\n\n\002$::zapbl::longName v$::zapbl::version\002 by Ratler"
+        ::stderreu::zapblcheck $idx
+    }
+
+    proc zapblcheck { idx } {
+        putidx $idx "### \002zapblcheck <host>"
+    }
+
+    proc zapdnsbldefault { idx } {
+        putidx $idx "\n\n\002$::zapbl::longName v$::zapbl::version\002 commands:"
+        putidx $idx "   \002zapblcheck"
+    }
+
+    proc help { hand idx arg } {
+        set myarg [join $arg]
+        # First we test if arg is all to print eggdrop builtin commands,
+        # then we call the help proc for each script loaded
+        if {$myarg == "all"} {
+            *dcc:help $hand $idx [join $arg]
+            foreach key [dict keys $::stderreu::helpfuncs] {
+                ::stderreu::$key $idx
             }
-            default {
-                *dcc:help $hand $idx [join $args]
-                 if {[llength [split $args]] == 0} {
-                     putidx $idx "\n\n$::zapbl::longName v$::zapbl::version commands:"
-                     putidx $idx "   \002zapblcheck"
+            return 1
+        } else {
+            foreach key [dict keys $::stderreu::helpfuncs] {
+                foreach helpf [dict get $::stderreu::helpfuncs $key] {
+                    if { $helpf == $myarg } {
+                        ::stderreu::$helpf $idx
+                        return 1
+                    }
                 }
-                return 0
             }
-        }; return 1
+        }
+
+        *dcc:help $hand $idx $myarg
+
+        if {[llength [split $arg]] == 0} {
+            foreach key [dict keys $::stderreu::helpfuncs] {
+                ::stderreu::${key}default $idx
+            }
+        }
+        return 1
     }
 }
+
 
 putlog "\002$::zapbl::longName v$::zapbl::version\002 by Ratler loaded"
