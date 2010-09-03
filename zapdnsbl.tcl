@@ -135,7 +135,7 @@ namespace eval ::zapdnsbl {
 
     # Public channel command to check if host appear in a DNS blacklist
     proc pubCheckDnsbl { nick host handle channel arg } {
-        if {![channel get $channel zadnspbl.pubcmd]} { return 0 }
+        if {![channel get $channel zapdnsbl.pubcmd]} { return 0 }
         if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $arg]} {
             set ip [::zapdnsbl::dnsQuery $arg resolve]
             if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
