@@ -211,8 +211,8 @@ namespace eval ::zapdnsbl {
                     foreach ipAdd $address {
                         lappend reason [::zapdnsbl::getDnsblReason $bl $ipAdd]
                     }
-
-                    set template [list %reason% [join $reason ", "] \
+                    set reason [join $reason ", "]
+                    set template [list %reason% $reason \
                                        %ip% $host]
                     dict set dnsblData reason $reason
                     dict set dnsblData banreason [::zapdnsbl::template [::zapdnsbl::getBanReason $bl] $template]
