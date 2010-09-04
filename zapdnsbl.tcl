@@ -91,7 +91,7 @@ namespace eval ::zapdnsbl {
 
         # Exclude ops, voice, friends
         if {[matchattr $handle fov|fov $channel]} {
-            ::zapdnsbl::debug "$nick is on exempt list"
+            putlog  "$::zapdnsbl::name - $nick is on exempt list"
             return 1
         }
 
