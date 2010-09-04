@@ -1,9 +1,32 @@
 #
 # zapdnsbl.tcl  Version: 0.1-dev  Author: Stefan Wold <ratler@stderr.eu>
 ###
+# Info:
+# ZAP DNS Blacklist is a script that take the host of a user joining
+# a channel and check it against configured DNS blacklists (RBL). The
+# configuration file is very similar to the format of BOPM.
+###
 # Require / Dependencies
 # tcl >= 8.5
 # tcllib >= 1.10 (http://www.tcl.tk/software/tcllib/)
+###
+# Installation:
+# Copy zapdnsbl.tcl and zapdnsbl.ini to your_eggdrop/scripts/zapdnsbl/ then
+# add source scripts/zapdnsbl/zapdnsbl.tcl in your eggdrop.conf.
+# Reload (rehash) or restart your bot, that is it.
+###
+# Usage:
+# chanset <channel> <+/->zapdnsbl
+# This will either enable (+) or disable (-) the script for the
+# specified channel
+#
+# chanset <channel> zapdnsbl.bantime <integer>
+# For how long should the ban be active in minutes, if unset the
+# script default to 120 minutes
+#
+# chanset <channel> <+/->zapdnsbl.pubcmd
+# Enable (+) or disable (-) public commands (!zapblcheck <host>)
+#
 ###
 # LICENSE:
 # Copyright (C) 2010  Stefan Wold <ratler@stderr.eu>
