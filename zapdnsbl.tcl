@@ -123,7 +123,7 @@ namespace eval ::zapdnsbl {
             putlog  "$::zapdnsbl::name - Host '$nick!$host ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
             set bantime [channel get $channel zapdnsbl.bantime]
             if {$bantime == 0} {
-                putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset #channel zapbl.bantime <integer>."
+                putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset #channel zapdnsbl.bantime <integer>."
                 set bantime 120
             }
 
