@@ -1,5 +1,5 @@
 #
-# zapdnsbl.tcl  Version: 0.1  Author: Stefan Wold <ratler@stderr.eu>
+# zapdnsbl.tcl  Version: 0.1.1  Author: Stefan Wold <ratler@stderr.eu>
 ###
 # Info:
 # ZAP DNS Blacklist is a script that take the host of a user joining
@@ -69,6 +69,7 @@ package require inifile
 package require dns
 
 # Bindings
+bind evnt - prerehash ::zapdnsbl::onEvent
 bind join - * ::zapdnsbl::onJoin
 bind dcc - zapblcheck ::zapdnsbl::dccCheckDnsbl
 bind dcc - help ::stderreu::help
@@ -76,7 +77,7 @@ bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
 
 namespace eval ::zapdnsbl {
     # Global variables
-    variable version "0.1"
+    variable version "0.1.1"
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
 
@@ -105,6 +106,17 @@ namespace eval ::zapdnsbl {
     ###
     # Functions
     ###
+    # onEvent: Used to watch certain events to act upon
+    proc onEvent { type } {
+        switch -- $type {
+            prerehash {
+                # Close ini file on rehash
+                ::zapdnsbl::debug "Prehash event triggered"
+                ::ini::close $::zapdnsbl::ini
+            }
+        }
+    }
+
     proc onJoin { nick host handle channel } {
         # Lower case channel
         set channel [string tolower $channel]
@@ -269,10 +281,12 @@ namespace eval ::zapdnsbl {
                 return $error
             }
             timeout {
-                putlog "timeout"
+                putlog "$::zapdnsbl::name - dnsQuery() timeout"
+                return ""
             }
             eof {
-                putlog "eof"
+                putlog "$::zapdnsbl::name - dnsQuery() eof"
+                return ""
             }
         }
     }
