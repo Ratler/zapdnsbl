@@ -81,8 +81,6 @@ namespace eval ::zapdnsbl {
     variable version "0.2-dev"
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
-
-    variable blacklists
     variable ini
 
     # Print debug
@@ -97,7 +95,6 @@ namespace eval ::zapdnsbl {
         foreach section [::ini::sections $::zapdnsbl::ini] {
             if {[regexp {^bl\:} $section]} {
                 ::zapdnsbl::debug "Loading blacklist '$section'"
-                lappend ::blacklists [lindex [split $section ":"] end]
             } elseif {[string equal config $section]} {
                 ::zapdnsbl::debug "Loading $::zapdnsbl::name '$section'"
             }
@@ -131,21 +128,12 @@ namespace eval ::zapdnsbl {
             return 1
         }
 
-        regexp ".+@(.+)" $host mathces iphost
+        regexp ".+@(.+)" $host -> iphost
         set iphost [string tolower $iphost]
 
-        # Check if it is a numeric host or resolve it
-        if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $iphost]} {
-            set ip [::zapdnsbl::dnsQuery $iphost resolve]
-            if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
-                putlog "$::zapdnsbl::name - Couldn't resolve '$iphost'. No further action taken."
-
-                # Abort if we fail to resolve the host
-                return 0
-            }
-        } else {
-            set ip $iphost
-        }
+        # Get ip from host
+        set ip [::zapdnsbl::getIp $iphost]
+        if {$ip == 0} { return 0 }
 
         # Do the DNSBL black magic
         set dnsblData [::zapdnsbl::dnsCheckDnsbl $ip $iphost]
@@ -159,7 +147,7 @@ namespace eval ::zapdnsbl {
             putlog  "$::zapdnsbl::name - Host '$nick!$host ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
             set bantime [channel get $channel zapdnsbl.bantime]
             if {$bantime == 0} {
-                putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset #channel zapdnsbl.bantime <integer>."
+                putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
                 set bantime 120
             }
 
@@ -172,17 +160,8 @@ namespace eval ::zapdnsbl {
     # Public channel command to check if host appear in a DNS blacklist
     proc pubCheckDnsbl { nick host handle channel arg } {
         if {![channel get $channel zapdnsbl.pubcmd]} { return 0 }
-        if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $arg]} {
-            set ip [::zapdnsbl::dnsQuery $arg resolve]
-            if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
-                putlog "$::zapdnsbl::name - Couldn't resolve '$host'. No further action taken."
-
-                # Abort if we fail to resolve the host
-                return 0
-            }
-        } else {
-            set ip $arg
-        }
+        set ip [::zapdnsbl::getIp $arg]
+        if {$ip == 0} { return 0 }
 
         # Do the DNSBL black magic
         set dnsblData [::zapdnsbl::dnsCheckDnsbl $ip $arg]
@@ -203,18 +182,8 @@ namespace eval ::zapdnsbl {
         set host [string tolower $host]
 
         # Check if it is a numeric host
-        if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $host]} {
-            set ip [::zapdnsbl::dnsQuery $host resolve]
-            ::zapdnsbl::debug " -- IP is $ip"
-            if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
-                putlog "$::zapdnsbl::name - Couldn't resolve '$host'. No further action taken."
-
-                # Abort if we fail to resolve the host
-                return 0
-            }
-        } else {
-            set ip $host
-        }
+        set ip [::zapdnsbl::getIp $host]
+        if {$ip == 0} { return 0 }
 
         set dnsblData [::zapdnsbl::dnsCheckDnsbl $ip $host]
 
@@ -245,9 +214,15 @@ namespace eval ::zapdnsbl {
                     dict set dnsblData status "FOUND"
 
                     foreach ipAdd $address {
-                        lappend reason [::zapdnsbl::getDnsblReason $bl $ipAdd]
+                        set blr [::zapdnsbl::getDnsblReason $bl $ipAdd]
+                        if {[info exists reason] && [lsearch $reason $blr] == -1} {
+                            lappend reason $blr
+                        } elseif {![info exists reason]} {
+                            lappend reason $blr
+                        }
                     }
-                    set reason [join $reason ", "]
+
+                    set reason [join [lsort $reason] ", "]
                     set template [list %reason% $reason \
                                        %ip% $host]
                     dict set dnsblData reason $reason
@@ -323,6 +298,22 @@ namespace eval ::zapdnsbl {
             return [::ini::value $::zapdnsbl::ini $bl default_ban_message]
         }
         return ""
+    }
+
+    # Getter to retrieve ip from host
+    proc getIp { iphost } {
+        if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $iphost]} {
+            set ip [::zapdnsbl::dnsQuery $iphost resolve]
+            if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
+                putlog "$::zapdnsbl::name - Couldn't resolve '$iphost'. No further action taken."
+
+                # Abort if we fail to resolve the host
+                return 0
+            }
+        } else {
+            set ip $iphost
+        }
+        return $ip
     }
 
     # Getter to retrieve ban_unknown from a blacklist, returns true or false
