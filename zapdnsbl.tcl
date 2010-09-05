@@ -65,6 +65,7 @@ setudef flag zapdnsbl.pubcmd
 setudef int zapdnsbl.bantime
 
 # Packages
+package require Tcl 8.5
 package require inifile
 package require dns
 
