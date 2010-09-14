@@ -151,7 +151,7 @@ namespace eval ::zapdnsbl {
                 set bantime 120
             }
 
-            newchanban $channel "*!*@[dict get $dnsblData host]" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+            newchanban $channel "*!*@[dict get $dnsblData ip]" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
             return 1
         }
         ::zapdnsbl::debug "Host '$nick!$host' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $dnsblData ip] - channel $channel"
@@ -224,7 +224,7 @@ namespace eval ::zapdnsbl {
 
                     set reason [join [lsort $reason] ", "]
                     set template [list %reason% $reason \
-                                       %ip% $host]
+                                       %ip% $ip]
                     dict set dnsblData reason $reason
                     dict set dnsblData banreason [::zapdnsbl::template [::zapdnsbl::getBanReason $bl] $template]
                     dict set dnsblData blacklist $dnsbl
