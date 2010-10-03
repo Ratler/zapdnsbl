@@ -71,8 +71,12 @@ package require dns
 
 # Bindings
 bind evnt - prerehash ::zapdnsbl::onEvent
+bind evnt - save ::zapdnsbl::onEvent
+bind evnt - sigquit ::zapdnsbl::onEvent
+bind evnt - sigterm ::zapdnsbl::onEvent
 bind join - * ::zapdnsbl::onJoin
 bind dcc - zapblcheck ::zapdnsbl::dccCheckDnsbl
+bind dcc m|o zapblconfig ::zapdnsbl::dccConfig
 bind dcc - help ::stderreu::help
 bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
 
@@ -95,7 +99,7 @@ namespace eval ::zapdnsbl {
         foreach section [::ini::sections $::zapdnsbl::ini] {
             if {[regexp {^bl\:} $section]} {
                 ::zapdnsbl::debug "Loading blacklist '$section'"
-            } elseif {[string equal config $section]} {
+            } else {
                 ::zapdnsbl::debug "Loading $::zapdnsbl::name '$section'"
             }
         }
@@ -104,13 +108,29 @@ namespace eval ::zapdnsbl {
     ###
     # Functions
     ###
+    proc saveAndCloseIniFile { } {
+        putlog "$::zapdnsbl::name - Saving ini file"
+        ::ini::commit $::zapdnsbl::ini
+        ::ini::close $::zapdnsbl::ini
+    }
+
     # onEvent: Used to watch certain events to act upon
     proc onEvent { type } {
+        ::zapdnsbl::debug "EVENT $type"
         switch -- $type {
             prerehash {
-                # Close ini file on rehash
-                ::zapdnsbl::debug "Prehash event triggered"
-                ::ini::close $::zapdnsbl::ini
+                ::zapdnsbl::saveAndCloseIniFile
+            }
+            save {
+                putlog "$::zapdnsbl::name - Saving ini file"
+                ::ini::commit $::zapdnsbl::ini
+
+            }
+            sigquit {
+                ::zapdnsbl::saveAndCloseIniFile
+            }
+            sigterm {
+                ::zapdnsbl::saveAndCloseIniFile
             }
         }
     }
@@ -151,10 +171,10 @@ namespace eval ::zapdnsbl {
                 set bantime 120
             }
 
-            newchanban $channel "*!*@[dict get $dnsblData ip]" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+            newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
             return 1
         }
-        ::zapdnsbl::debug "Host '$nick!$host' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $dnsblData ip] - channel $channel"
+        ::zapdnsbl::debug "Host '$iphost' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $dnsblData ip] - channel $channel"
     }
 
     # Public channel command to check if host appear in a DNS blacklist
@@ -192,6 +212,38 @@ namespace eval ::zapdnsbl {
             putlog "$::zapdnsbl::name - TEST: Ban message for '[dict get $dnsblData host]': [dict get $dnsblData banreason]"
         } else {
             putlog "$::zapdnsbl::name - TEST: Host '[dict get $dnsblData ip] ([dict get $dnsblData host])' was NOT found in any blacklist, status [dict get $dnsblData status]"
+        }
+    }
+
+    proc dccConfig { nick idx arg } {
+        if {!([llength [split $arg]] > 0)} {
+            ::stderreu::zapblconfig $idx; return 0
+        }
+
+        set key [string tolower [lindex [split $arg] 0]]
+        set value [join [lrange [split $arg] 1 end]]
+
+
+        # Allowed string options
+        set allowed_str_opts [list nameserver]
+
+        # Allowed boolean options
+        #set allowed_bool_opts [list ]
+        if {[lsearch -exact $allowed_str_opts $key] != -1} {
+            if {$key == "nameserver" && $value != ""} {
+                if {[regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $value]} {
+                    ::zapdnsbl::setConfigValuePair options $key $value
+                    putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
+                } else {
+                    putdcc $idx "$::zapdnsbl::name: Invalid ip address ($value) for option 'nameserver'"
+                }
+            } elseif {$value != ""} {
+                ::zapdnsbl::setConfigValuePair options $key $value
+                putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
+            } else {
+                ::zapdnsbl::setConfigValuePair options $key ""
+                putdcc $idx "$::zapdnsbl::name: Option '$key' unset"
+            }
         }
     }
 
@@ -237,7 +289,13 @@ namespace eval ::zapdnsbl {
     }
 
     proc dnsQuery { host mode } {
-        set result [::dns::resolve $host]
+        if {[::ini::exists $::zapdnsbl::ini options nameserver]} {
+            set nameserver [::ini::value $::zapdnsbl::ini options nameserver]
+            ::zapdnsbl::debug "Nameserver override detected, forced to '$nameserver'"
+            set result [::dns::resolve $host -server $nameserver]
+        } else {
+            set result [::dns::resolve $host]
+        }
         switch -- [::dns::status $result] {
             ok {
                 # Just pick the first entry if a list is returned
@@ -305,6 +363,7 @@ namespace eval ::zapdnsbl {
         if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $iphost]} {
             set ip [::zapdnsbl::dnsQuery $iphost resolve]
             if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
+                ::zapdnsbl::debug "DNS ERROR: $ip"
                 putlog "$::zapdnsbl::name - Couldn't resolve '$iphost'. No further action taken."
 
                 # Abort if we fail to resolve the host
@@ -323,14 +382,29 @@ namespace eval ::zapdnsbl {
         }
         return 0
     }
+
+    ###
+    # Setters
+    ###
+    proc setConfigValuePair { section key value } {
+        # If value is empty remove the key
+        if {$value == ""} {
+            ::ini::delete $::zapdnsbl::ini $section $key
+        } else {
+            ::ini::set $::zapdnsbl::ini $section $key $value
+        }
+        # Check if section have keys if not delete the section
+        if {[llength [::ini::keys $::zapdnsbl::ini $section]] == 0} {
+            ::ini::delete $::zapdnsbl::ini $section
+            ::zapdnsbl::debug "Section '$section' empty - deleted"
+        }
+    }
 }
 
 namespace eval ::stderreu {
     variable helpfuncs
 
-    if {![info exists ::stderreu::helpfuncs] || ![dict exists $::stderreu::helpfuncs zapdnsbl]} {
-        dict set ::stderreu::helpfuncs zapdnsbl [list zapdnsbl zapblcheck]
-    }
+    dict set ::stderreu::helpfuncs zapdnsbl [list zapdnsbl zapblcheck zapblconfig]
 
     proc zapdnsbl { idx } {
         putidx $idx "\n\n\002$::zapdnsbl::longName v$::zapdnsbl::version\002 by Ratler"
@@ -341,9 +415,17 @@ namespace eval ::stderreu {
         putidx $idx "### \002zapblcheck <host>"
     }
 
+    proc zapblconfig { idx } {
+        putidx $idx "### \002zablconfig <option> \[value\]\002"
+        putidx $idx "    \002Options\002:"
+        putidx $idx "      nameserver \[ip\]    : Override system default DNS resolver configuration."
+        putidx $idx "                           NOTE: This option is necessary for windrop users."
+        putidx $idx "    \002*NOTE*\002:"
+        putidx $idx "      To completely remove an option from the configuration leave \[value\] blank, ie .zapblconfig nameserver"
+    }
     proc zapdnsbldefault { idx } {
         putidx $idx "\n\n\002$::zapdnsbl::longName v$::zapdnsbl::version\002 commands:"
-        putidx $idx "   \002zapblcheck\002"
+        putidx $idx "   \002zapblcheck    zapblconfig\002"
     }
 
     proc help { hand idx arg } {
