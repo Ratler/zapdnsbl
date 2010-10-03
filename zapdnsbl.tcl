@@ -1,5 +1,5 @@
 #
-# zapdnsbl.tcl  Version: 0.2  Author: Stefan Wold <ratler@stderr.eu>
+# zapdnsbl.tcl  Version: 0.3-dev  Author: Stefan Wold <ratler@stderr.eu>
 ###
 # Info:
 # ZAP DNS Blacklist is a script that take the host of a user joining
@@ -78,7 +78,7 @@ bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
 
 namespace eval ::zapdnsbl {
     # Global variables
-    variable version "0.2"
+    variable version "0.3-dev"
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
     variable ini
