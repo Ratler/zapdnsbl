@@ -74,17 +74,21 @@ bind evnt - prerehash ::zapdnsbl::onEvent
 bind evnt - save ::zapdnsbl::onEvent
 bind evnt - sigquit ::zapdnsbl::onEvent
 bind evnt - sigterm ::zapdnsbl::onEvent
+bind evnt - init-server ::zapdnsbl::onEvent
 bind join - * ::zapdnsbl::onJoin
 bind dcc - zapblcheck ::zapdnsbl::dccCheckDnsbl
 bind dcc m|o zapblconfig ::zapdnsbl::dccConfig
 bind dcc - help ::stderreu::help
 bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
+bind raw - NOTICE ::zapdnsbl::onServerNotice
+bind raw - 221 ::zapdnsbl::showUserMode
 
 namespace eval ::zapdnsbl {
     # Global variables
     variable version "0.3-CR-dev"
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
+    variable umode ""
     variable ini
 
     # Print debug
@@ -132,6 +136,24 @@ namespace eval ::zapdnsbl {
             sigterm {
                 ::zapdnsbl::saveAndCloseIniFile
             }
+            init-server {
+                if {[::ini::exists $::zapdnsbl::ini options operuser]} {
+                    ::zapdnsbl::debug "Trying to gain operator status"
+                    set operUser [::ini::value $::zapdnsbl::ini options operuser]
+                    set operPass [::ini::value $::zapdnsbl::ini options operpass]
+                    putquick "OPER $operUser $operPass"
+                    if {[::ini::exists $::zapdnsbl::ini options opermode]} {
+                        putquick "UMODE [::ini::value $::zapdnsbl::ini options opermode]"
+                    }
+                    if {[::ini::exists $::zapdnsbl::ini options backchan]} {
+                        set backchan [::ini::value $::zapdnsbl::ini options backchan]
+                        channel add $backchan
+                        putquick "SAJOIN $backchan"
+                    }
+                    putquick "UMODE"
+                    ::zapdnsbl::debug $::zapdnsbl::umode
+                }
+            }
         }
     }
 
@@ -175,6 +197,46 @@ namespace eval ::zapdnsbl {
             return 1
         }
         ::zapdnsbl::debug "Host '$iphost' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $dnsblData ip] - channel $channel"
+    }
+
+    proc onServerNotice { from keyword text } {
+        if {[string match "*Client connecting on*" $text]} {
+            set len [llength [split $text]]
+            set host [lindex [split $text] [expr $len - 2]]
+            set class [lindex [split $text] end]
+            ::zapdnsbl::debug "Host: $host, Connection class: $class"
+
+            regexp ".+@(.+)" $host -> iphost
+            set iphost [string tolower $iphost]
+
+            # Get ip from host
+            set ip [::zapdnsbl::getIp $iphost]
+            if {$ip == 0} { return 0 }
+            ::zapdnsbl::debug "onServerNotice - IP: $ip"
+
+            # Do the DNSBL black magic
+            set dnsblData [::zapdnsbl::dnsCheckDnsbl $ip $iphost]
+
+            if {[dict get $dnsblData status] == "FOUND" } {
+                # Check if unknown is enabled or abort
+                if {![::zapdnsbl::isBanUnknownEnabled "bl:[dict get $dnsblData blacklist]"] && [dict get $dnsblData reason] == "Unknown"} {
+                    ::zapdnsbl::debug "Host '$nick!$host ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not kill/gline because ban_unknown is set to false"
+                } else {
+                    set blacklist [dict get $dnsblData blacklist]
+                    set blreason [dict get $dnsblData reason]
+                    putlog  "$::zapdnsbl::name - Host '$nick!$host ([dict get $dnsblData ip])' found in $blacklist reason '$blreason', kill/gline with reason '[dict get $dnsblData banreason]'!"
+                    if {[::ini::exists $::zapdnsbl::ini options backchan] && [botonchan [::ini::value $::zapdnsbl::ini options backchan]]} {
+                        set backchan [::ini::value $::zapdnsbl::ini options backchan]
+                        puthelp "PRIVMSG $backchan :ZAPDNSBL -> $nick!$host appears in BL zone $blacklist ($blreason)"
+                    }
+                }
+            }
+        }
+    }
+
+    proc showUserMode { from keyword text } {
+        set ::zapdnsbl::umode [lindex [split $text ":"] end]
+        ::zapdnsbl::debug $text
     }
 
     # Public channel command to check if host appear in a DNS blacklist
@@ -225,7 +287,7 @@ namespace eval ::zapdnsbl {
 
 
         # Allowed string options
-        set allowed_str_opts [list nameserver]
+        set allowed_str_opts [list nameserver oper opermode backchan]
 
         # Allowed boolean options
         #set allowed_bool_opts [list ]
@@ -237,11 +299,27 @@ namespace eval ::zapdnsbl {
                 } else {
                     putdcc $idx "$::zapdnsbl::name: Invalid ip address ($value) for option 'nameserver'"
                 }
-            } elseif {$value != ""} {
+            } elseif { $key == "oper" && [llength [split $value]] > 1 } {
+                set operUser [lindex [split $value] 0]
+                set operPass [lindex [split $value] 1]
+                ::zapdnsbl::setConfigValuePair options operuser $operUser
+                ::zapdnsbl::setConfigValuePair options operpass $operPass
+                putdcc $idx "$::zapdnsbl::name: Oper user '$operUser' with password '$operPass' set"
+            } elseif { $key == "backchan"} {
+                if {[regexp {^#} $value]} {
+                    ::zapdnsbl::setConfigValuePair options $key $value
+                    putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
+                }
+            } elseif { $value != "" } {
                 ::zapdnsbl::setConfigValuePair options $key $value
                 putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
             } else {
-                ::zapdnsbl::setConfigValuePair options $key ""
+                if { $key == "oper" } {
+                    ::zapdnsbl::setConfigValuePair options operuser ""
+                    ::zapdnsbl::setConfigValuePair options operpass ""
+                } else {
+                    ::zapdnsbl::setConfigValuePair options $key ""
+                }
                 putdcc $idx "$::zapdnsbl::name: Option '$key' unset"
             }
         }
@@ -258,8 +336,8 @@ namespace eval ::zapdnsbl {
         dict set dnsblData host $host
 
         foreach bl [::ini::sections $::zapdnsbl::ini] {
-            ::zapdnsbl::debug "Trying blacklist $bl..."
             if {[regexp {^bl\:} $bl]} {
+                ::zapdnsbl::debug "Trying blacklist $bl..."
                 set dnsbl [lindex [split $bl ":"] end]
                 set address [::zapdnsbl::dnsQuery $reverseIp.$dnsbl dnsbl]
                 if {[regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} [lindex $address 0]]} {
@@ -409,6 +487,7 @@ namespace eval ::stderreu {
     proc zapdnsbl { idx } {
         putidx $idx "\n\n\002$::zapdnsbl::longName v$::zapdnsbl::version\002 by Ratler"
         ::stderreu::zapblcheck $idx
+        ::stderreu::zapblconfig $idx
     }
 
     proc zapblcheck { idx } {
@@ -418,8 +497,11 @@ namespace eval ::stderreu {
     proc zapblconfig { idx } {
         putidx $idx "### \002zablconfig <option> \[value\]\002"
         putidx $idx "    \002Options\002:"
-        putidx $idx "      nameserver \[ip\]    : Override system default DNS resolver configuration."
-        putidx $idx "                           NOTE: This option is necessary for windrop users."
+        putidx $idx "      nameserver \[ip\]             : Override system default DNS resolver configuration."
+        putidx $idx "                                    NOTE: This option is necessary for windrop users."
+        putidx $idx "      oper <username> <password>  : Set IRC operator username and password."
+        putidx $idx "      opermode <usermode>         : Set IRC operator usermode necessary to get connection notices."
+        putidx $idx "      backchan <channel>          : Set back channel where the bot should report blacklisted hosts."
         putidx $idx "    \002*NOTE*\002:"
         putidx $idx "      To completely remove an option from the configuration leave \[value\] blank, ie .zapblconfig nameserver"
     }
