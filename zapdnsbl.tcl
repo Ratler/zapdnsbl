@@ -263,7 +263,7 @@ namespace eval ::zapdnsbl {
                     set blreason [dict get $dnsblData reason]
                     set banreason [dict get $dnsblData banreason]
                     set bantime 120
-                    if {[::ini::exist $::zapdnsbl::ini options bantime]} {
+                    if {[::ini::exists $::zapdnsbl::ini options bantime]} {
                         set bantime [::ini::value $::zapdnsbl::ini options bantime]
                     }
                     putlog  "$::zapdnsbl::name - Host '$host ([dict get $dnsblData ip])' found in $blacklist reason '$blreason', kill/gline with reason '$banreason'!"
