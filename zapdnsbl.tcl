@@ -89,6 +89,7 @@ namespace eval ::zapdnsbl {
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
     variable umode ""
+    variable whitelists
     variable ini
 
     # Print debug
@@ -105,6 +106,11 @@ namespace eval ::zapdnsbl {
                 ::zapdnsbl::debug "Loading blacklist '$section'"
             } else {
                 ::zapdnsbl::debug "Loading $::zapdnsbl::name '$section'"
+                foreach key [list wlhost wlclass] {
+                    if {$section == "options" && [::ini::exists $::zapdnsbl::ini options $key]} {
+                        set ::zapdnsbl::whitelists($key) [split [::ini::value $::zapdnsbl::ini options $key] ","]
+                    }
+                }
             }
         }
     }
@@ -114,8 +120,18 @@ namespace eval ::zapdnsbl {
     ###
     proc saveAndCloseIniFile { } {
         putlog "$::zapdnsbl::name - Saving ini file"
+        ::zapdnsbl::updateIniWhitelists
         ::ini::commit $::zapdnsbl::ini
         ::ini::close $::zapdnsbl::ini
+    }
+
+    proc updateIniWhitelists { } {
+        foreach key [array names ::zapdnsbl::whitelists] {
+            if {[info exists ::zapdnsbl::whitelists($key)] && [llength [split $::zapdnsbl::whitelists($key)]] > 0} {
+                ::zapdnsbl::debug "updateIniWhitelists() - [join $::zapdnsbl::whitelists($key) ","]"
+                ::ini::set $::zapdnsbl::ini options $key [join $::zapdnsbl::whitelists($key) ","]
+            }
+        }
     }
 
     # onEvent: Used to watch certain events to act upon
@@ -127,6 +143,7 @@ namespace eval ::zapdnsbl {
             }
             save {
                 putlog "$::zapdnsbl::name - Saving ini file"
+                ::zapdnsbl::updateIniWhitelists
                 ::ini::commit $::zapdnsbl::ini
 
             }
@@ -209,6 +226,26 @@ namespace eval ::zapdnsbl {
             regexp ".+@(.+)" $host -> iphost
             set iphost [string tolower $iphost]
 
+            # Check class and host whitelist
+            if {[info exists ::zapdnsbl::whitelists(wlclass)]} {
+                # A bit ugly bit will have to do for now (due to regexps in list)
+                foreach pattern $::zapdnsbl::whitelists(wlclass) {
+                    if {[string match $pattern $class]} {
+                        putlog "$::zapdnsbl::name - Connection class '$class' is whitelisted, matched by pattern '$pattern'"
+                        return 1
+                    }
+                }
+            }
+            if {[info exists ::zapdnsbl::whitelists(wlhost)]} {
+                # A bit ugly bit will have to do for now (due to regexps in list)
+                foreach pattern $::zapdnsbl::whitelists(wlhost) {
+                    if {[string match $pattern $iphost]} {
+                        putlog "$::zapdnsbl::name - Host '$iphost' is whitelisted, matched by pattern '$pattern'"
+                        return 1
+                    }
+                }
+            }
+
             # Get ip from host
             set ip [::zapdnsbl::getIp $iphost]
             if {$ip == 0} { return 0 }
@@ -224,11 +261,17 @@ namespace eval ::zapdnsbl {
                 } else {
                     set blacklist [dict get $dnsblData blacklist]
                     set blreason [dict get $dnsblData reason]
-                    putlog  "$::zapdnsbl::name - Host '$nick!$host ([dict get $dnsblData ip])' found in $blacklist reason '$blreason', kill/gline with reason '[dict get $dnsblData banreason]'!"
+                    set banreason [dict get $dnsblData banreason]
+                    set bantime 120
+                    if {[::ini::exist $::zapdnsbl::ini options bantime]} {
+                        set bantime [::ini::value $::zapdnsbl::ini options bantime]
+                    }
+                    putlog  "$::zapdnsbl::name - Host '$host ([dict get $dnsblData ip])' found in $blacklist reason '$blreason', kill/gline with reason '$banreason'!"
                     if {[::ini::exists $::zapdnsbl::ini options backchan] && [botonchan [::ini::value $::zapdnsbl::ini options backchan]]} {
                         set backchan [::ini::value $::zapdnsbl::ini options backchan]
-                        puthelp "PRIVMSG $backchan :ZAPDNSBL -> $nick!$host appears in BL zone $blacklist ($blreason)"
+                        puthelp "PRIVMSG $backchan :ZAPDNSBL -> $host appears in BL zone $blacklist ($blreason)"
                     }
+                    #putquick "AKILL *@$iphost $banreason $bantime"
                 }
             }
         }
@@ -285,9 +328,8 @@ namespace eval ::zapdnsbl {
         set key [string tolower [lindex [split $arg] 0]]
         set value [join [lrange [split $arg] 1 end]]
 
-
         # Allowed string options
-        set allowed_str_opts [list nameserver oper opermode backchan]
+        set allowed_str_opts [list nameserver oper opermode backchan wl bantime]
 
         # Allowed boolean options
         #set allowed_bool_opts [list ]
@@ -309,6 +351,73 @@ namespace eval ::zapdnsbl {
                 if {[regexp {^#} $value]} {
                     ::zapdnsbl::setConfigValuePair options $key $value
                     putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
+                }
+            } elseif { $key == "wl" } {
+                if {[llength [split $value]] > 1} {
+                    set validTypes [list class host]
+                    set type [lindex [split $value] 0]
+                    if {[lsearch -nocase -exact $validTypes $type] == -1} {
+                        putidx $idx "$::zapdnsbl::name - Unknown whitelist '$type'."
+                        ::stderreu::zapblconfig $idx
+                        return
+                    }
+
+                    set action [lindex [split $value] 1]
+                    set data ""
+                    if {[llength [split $value]] == 3} {
+                        set data [lindex [split $value] 2]
+                    }
+
+                    ::zapdnsbl::debug "$type - $action - $data"
+
+                    switch -- $action {
+                        add {
+                            if {$type == "class" || $type == "host"} {
+                                set wl $key
+                                append wl $type
+                                ::zapdnsbl::debug "switch - $wl"
+                                if {([info exists ::zapdnsbl::whitelists($wl)] && [lsearch -exact $::zapdnsbl::whitelists($wl) $data] == -1) || ![info exists ::zapdnsbl::whitelists($wl)]} {
+                                    lappend ::zapdnsbl::whitelists($wl) $data
+                                    ::zapdnsbl::debug "$::zapdnsbl::whitelists($wl)"
+                                } else {
+                                    putdcc $idx "$::zapdnsbl::name - A $type by the name '$data' already exist."
+                                }
+                            } else {
+                            }
+                        }
+                        del {
+                            if {$type == "class" || $type == "host"} {
+                                set wl $key
+                                append wl $type
+                                if {[info exists ::zapdnsbl::whitelists($wl)]} {
+                                    set listIndex [lsearch -exact $::zapdnsbl::whitelists($wl) $data]
+                                    if {$listIndex != -1} {
+                                        set ::zapdnsbl::whitelists($wl) [lreplace $::zapdnsbl::whitelists($wl) $listIndex $listIndex]
+                                    } else {
+                                        putdcc $idx "$::zapdnsbl::name - No $type by the name '$data' exist."
+                                    }
+                                }
+                            } else {
+                            }
+                        }
+                        list {
+                            if {$type == "class" || $type == "host"} {
+                                set wl $key
+                                append wl $type
+                                if {[info exists ::zapdnsbl::whitelists($wl)]} {
+                                    set wllist [join $::zapdnsbl::whitelists($wl) ", "]
+                                    putdcc $idx "$::zapdnsbl::name - $type whitelist: $wllist"
+                                }
+                            }
+                        }
+                        default {
+                            putidx $idx "$::zapdnsbl::name - Unknown action '$action'."
+                            ::stderreu::zapblconfig $idx
+                        }
+                    }
+                } else {
+                    putidx $idx "$::zapdnsbl::name - Missing arguments."
+                    ::stderreu::zapblconfig $idx
                 }
             } elseif { $value != "" } {
                 ::zapdnsbl::setConfigValuePair options $key $value
@@ -495,13 +604,18 @@ namespace eval ::stderreu {
     }
 
     proc zapblconfig { idx } {
-        putidx $idx "### \002zablconfig <option> \[value\]\002"
+        putidx $idx "### \002zablconfig\002"
         putidx $idx "    \002Options\002:"
         putidx $idx "      nameserver \[ip\]             : Override system default DNS resolver configuration."
         putidx $idx "                                    NOTE: This option is necessary for windrop users."
         putidx $idx "      oper <username> <password>  : Set IRC operator username and password."
         putidx $idx "      opermode <usermode>         : Set IRC operator usermode necessary to get connection notices."
         putidx $idx "      backchan <channel>          : Set back channel where the bot should report blacklisted hosts."
+        putidx $idx "      wl <type> <action> \[value\]  : Manage whitelists for host and class."
+        putidx $idx "                                    Valid types: host, class"
+        putidx $idx "                                    Valid actions: add, del, list"
+        putidx $idx "                                    Value: Allows any input, including wildcard (*)"
+        putidx $idx "      bantime <minutes>           : Set GLINE/AKICK time in minutes, default is 120 minutes."
         putidx $idx "    \002*NOTE*\002:"
         putidx $idx "      To completely remove an option from the configuration leave \[value\] blank, ie .zapblconfig nameserver"
     }
