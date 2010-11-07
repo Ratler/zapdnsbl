@@ -271,7 +271,9 @@ namespace eval ::zapdnsbl {
                         set backchan [::ini::value $::zapdnsbl::ini options backchan]
                         puthelp "PRIVMSG $backchan :ZAPDNSBL -> $host appears in BL zone $blacklist ($blreason)"
                     }
-                    putquick "AKILL *@$iphost $banreason $bantime"
+                    if {![::ini::exists $::zapdnsbl::ini options logmode] || [::ini::value $::zapdnsbl::ini options logmode] == "off"]} {
+                        putquick "AKILL *@$iphost $banreason $bantime"
+                    }
                 }
             }
         }
@@ -329,7 +331,7 @@ namespace eval ::zapdnsbl {
         set value [join [lrange [split $arg] 1 end]]
 
         # Allowed string options
-        set allowed_str_opts [list nameserver oper opermode backchan wl bantime]
+        set allowed_str_opts [list nameserver oper opermode backchan wl bantime logmode]
 
         # Allowed boolean options
         #set allowed_bool_opts [list ]
@@ -616,6 +618,7 @@ namespace eval ::stderreu {
         putidx $idx "                                    Valid actions: add, del, list"
         putidx $idx "                                    Value: Allows any input, including wildcard (*)"
         putidx $idx "      bantime <minutes>           : Set GLINE/AKICK time in minutes, default is 120 minutes."
+        putidx $idx "      logmode <on|off>            : Enable or disable logmode, when set to 'on' it disables AKILL."
         putidx $idx "    \002*NOTE*\002:"
         putidx $idx "      To completely remove an option from the configuration leave \[value\] blank, ie .zapblconfig nameserver"
     }
