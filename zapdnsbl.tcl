@@ -271,7 +271,7 @@ namespace eval ::zapdnsbl {
                         set backchan [::ini::value $::zapdnsbl::ini options backchan]
                         puthelp "PRIVMSG $backchan :ZAPDNSBL -> $host appears in BL zone $blacklist ($blreason)"
                     }
-                    if {![::ini::exists $::zapdnsbl::ini options logmode] || [::ini::value $::zapdnsbl::ini options logmode] == "off"]} {
+                    if {![::ini::exists $::zapdnsbl::ini options logmode] || [::ini::value $::zapdnsbl::ini options logmode] == "off"} {
                         putquick "AKILL *@$iphost $banreason $bantime"
                     }
                 }
