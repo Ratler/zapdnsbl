@@ -29,7 +29,7 @@
 #
 ###
 # LICENSE:
-# Copyright (C) 2010  Stefan Wold <ratler@stderr.eu>
+# Copyright (C) 2010 - 2011  Stefan Wold <ratler@stderr.eu>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -136,6 +136,12 @@ namespace eval ::zapdnsbl {
     }
 
     proc onJoin { nick host handle channel } {
+        # Ignore myself
+        if {[isbotnick $nick]} {
+            ::zapdnsbl::debug "Found myself ($nick) - Ignoring"
+            return 1
+        }
+
         # Lower case channel
         set channel [string tolower $channel]
 
