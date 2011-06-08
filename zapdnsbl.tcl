@@ -485,6 +485,9 @@ namespace eval ::zapdnsbl {
         } else {
             set result [::dns::resolve $host]
         }
+
+        ::dns::wait $result
+
         switch -- [::dns::status $result] {
             ok {
                 # Just pick the first entry if a list is returned
