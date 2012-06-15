@@ -331,7 +331,7 @@ namespace eval ::zapdnsbl {
         set value [join [lrange [split $arg] 1 end]]
 
         # Allowed string options
-        set allowed_str_opts [list nameserver oper opermode backchan wl bantime logmode]
+        set allowed_str_opts [list nameserver dnstimeout oper opermode backchan wl bantime logmode]
 
         # Allowed boolean options
         #set allowed_bool_opts [list ]
@@ -342,6 +342,13 @@ namespace eval ::zapdnsbl {
                     putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
                 } else {
                     putdcc $idx "$::zapdnsbl::name: Invalid ip address ($value) for option 'nameserver'"
+                }
+            } elseif {$key == "dnstimeout" && $value != ""} {
+                if {[regexp {[0-9]+} $value]} {
+                    ::zapdnsbl::setConfigValuePair options $key $value
+                    putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
+                } else {
+                    putdcc $idx "$::zapdnsbl::name: Invalud value for dnstimeout, must be an integer."
                 }
             } elseif { $key == "oper" && [llength [split $value]] > 1 } {
                 set operUser [lindex [split $value] 0]
@@ -448,7 +455,7 @@ namespace eval ::zapdnsbl {
 
         foreach bl [::ini::sections $::zapdnsbl::ini] {
             if {[regexp {^bl\:} $bl]} {
-                ::zapdnsbl::debug "Trying blacklist $bl..."
+                ::zapdnsbl::debug "Trying blacklist $bl ($ip)"
                 set dnsbl [lindex [split $bl ":"] end]
                 set address [::zapdnsbl::dnsQuery $reverseIp.$dnsbl dnsbl]
                 if {[regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} [lindex $address 0]]} {
@@ -478,21 +485,31 @@ namespace eval ::zapdnsbl {
     }
 
     proc dnsQuery { host mode } {
+        set timer [clock clicks -milliseconds]
+        set dnsTimeout 30000
+        if {[::ini::exists $::zapdnsbl::ini options dnstimeout]} {
+            set timeout [::ini::value $::zapdnsbl::ini options dnstimeout]
+            if {$timeout > 0} {
+                set dnsTimeout [expr {int($timeout * 1000)}]
+                ::zapdnsbl::debug "DNS timeout set to $dnsTimeout milliseconds"
+            }
+        }
         if {[::ini::exists $::zapdnsbl::ini options nameserver]} {
             set nameserver [::ini::value $::zapdnsbl::ini options nameserver]
             ::zapdnsbl::debug "Nameserver override detected, forced to '$nameserver'"
-            set result [::dns::resolve $host -server $nameserver]
+            set result [::dns::resolve $host -server $nameserver -timeout $dnsTimeout]
         } else {
-            set result [::dns::resolve $host]
+            set result [::dns::resolve $host -timeout $dnsTimeout]
         }
 
         ::dns::wait $result
+        ::zapdnsbl::debug "Query time ($host): [expr {int([clock clicks -milliseconds] - $timer)}] msec"
 
         switch -- [::dns::status $result] {
             ok {
                 # Just pick the first entry if a list is returned
                 set address [::dns::address $result]
-                ::zapdnsbl::debug "Address $address"
+                ::zapdnsbl::debug "Resolved address $address"
                 ::dns::cleanup $result
                 return $address
             }
@@ -507,7 +524,7 @@ namespace eval ::zapdnsbl {
                 return $error
             }
             timeout {
-                putlog "$::zapdnsbl::name - dnsQuery() timeout"
+                putlog "$::zapdnsbl::name - dnsQuery() timeout ($host)"
                 return ""
             }
             eof {
@@ -613,6 +630,7 @@ namespace eval ::stderreu {
         putidx $idx "    \002Options\002:"
         putidx $idx "      nameserver \[ip\]             : Override system default DNS resolver configuration."
         putidx $idx "                                    NOTE: This option is necessary for windrop users."
+        putidx $idx "      dnstimeout \[seconds\]        : Set timeout for DNS queries, default is 30 seconds."
         putidx $idx "      oper <username> <password>  : Set IRC operator username and password."
         putidx $idx "      opermode <usermode>         : Set IRC operator usermode necessary to get connection notices."
         putidx $idx "      backchan <channel>          : Set back channel where the bot should report blacklisted hosts."
