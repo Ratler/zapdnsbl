@@ -331,7 +331,7 @@ namespace eval ::zapdnsbl {
         set value [join [lrange [split $arg] 1 end]]
 
         # Allowed string options
-        set allowed_str_opts [list nameserver dnstimeout oper opermode backchan wl bantime logmode]
+        set allowed_str_opts [list nameserver dnstimeout oper opermode backchan wl bl bantime logmode]
 
         # Allowed boolean options
         #set allowed_bool_opts [list ]
@@ -360,6 +360,32 @@ namespace eval ::zapdnsbl {
                 if {[regexp {^#} $value]} {
                     ::zapdnsbl::setConfigValuePair options $key $value
                     putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
+                }
+            } elseif {$key == "bl"} {
+                if {[llength [split $value]] > 0} {
+                    set action [lindex [split $value] 0]
+
+                    switch -- $action {
+                        list {
+                            putidx $idx "### $::zapdnsbl::name - Loaded blacklists"
+                            foreach section [::ini::sections $::zapdnsbl::ini] {
+                                if {[regexp {^bl\:} $section]} {
+                                    putidx $idx "   [lindex [split $section ":"] 1]"
+                                    foreach {k v} [::ini::get $::zapdnsbl::ini $section] {
+                                        putidx $idx "      $k = $v"
+                                    }
+                                    putidx $idx ""
+                                }
+                            }
+                        }
+                        default {
+                            putidx $idx "$::zapdnsbl::name - Unknown action '$action'."
+                            ::stderreu::zapblconfig $idx
+                        }
+                    }
+                } else {
+                    putidx $idx "$::zapdnsbl::name - Missing arguments."
+                    ::stderreu::zapblconfig $idx
                 }
             } elseif { $key == "wl" } {
                 if {[llength [split $value]] > 1} {
@@ -638,6 +664,8 @@ namespace eval ::stderreu {
         putidx $idx "                                    Valid types: host, class"
         putidx $idx "                                    Valid actions: add, del, list"
         putidx $idx "                                    Value: Allows any input, including wildcard (*)"
+        putidx $idx "      bl <action>                 : Manage blacklists"
+        putidx $idx "                                    Valid actions: list"
         putidx $idx "      bantime <minutes>           : Set GLINE/AKICK time in minutes, default is 120 minutes."
         putidx $idx "      logmode <on|off>            : Enable or disable logmode, when set to 'on' it disables AKILL."
         putidx $idx "    \002*NOTE*\002:"
