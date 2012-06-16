@@ -231,7 +231,7 @@ namespace eval ::zapdnsbl {
 
 
         # Allowed string options
-        set allowed_str_opts [list nameserver dnstimeout]
+        set allowed_str_opts [list nameserver dnstimeout bl]
 
         # Allowed boolean options
         #set allowed_bool_opts [list ]
@@ -249,6 +249,32 @@ namespace eval ::zapdnsbl {
                     putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
                 } else {
                     putdcc $idx "$::zapdnsbl::name: Invalud value for dnstimeout, must be an integer."
+                }
+            } elseif {$key == "bl"} {
+                if {[llength [split $value]] > 0} {
+                    set action [lindex [split $value] 0]
+
+                    switch -- $action {
+                        list {
+                            putidx $idx "### $::zapdnsbl::name - Loaded blacklists"
+                            foreach section [::ini::sections $::zapdnsbl::ini] {
+                                if {[regexp {^bl\:} $section]} {
+                                    putidx $idx "   [lindex [split $section ":"] 1]"
+                                    foreach {k v} [::ini::get $::zapdnsbl::ini $section] {
+                                        putidx $idx "      $k = $v"
+                                    }
+                                    putidx $idx ""
+                                }
+                            }
+                        }
+                        default {
+                            putidx $idx "$::zapdnsbl::name - Unknown action '$action'."
+                            ::stderreu::zapblconfig $idx
+                        }
+                    }
+                } else {
+                    putidx $idx "$::zapdnsbl::name - Missing arguments."
+                    ::stderreu::zapblconfig $idx
                 }
             } elseif {$value != ""} {
                 ::zapdnsbl::setConfigValuePair options $key $value
@@ -447,6 +473,8 @@ namespace eval ::stderreu {
         putidx $idx "      nameserver \[ip\]    : Override system default DNS resolver configuration."
         putidx $idx "                           NOTE: This option is necessary for windrop users."
         putidx $idx "      dnstimeout \[seconds\]        : Set timeout for DNS queries, default is 30 seconds."
+        putidx $idx "      bl <action>                 : Manage blacklists"
+        putidx $idx "                                    Valid actions: list"
         putidx $idx "    \002*NOTE*\002:"
         putidx $idx "      To completely remove an option from the configuration leave \[value\] blank, ie .zapblconfig nameserver"
     }
