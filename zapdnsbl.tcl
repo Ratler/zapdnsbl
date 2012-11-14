@@ -158,27 +158,62 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
     regexp ".+@(.+)" $host -> iphost
     set iphost [string tolower $iphost]
 
-    # Get ip from host
-    set ip [::zapdnsbl::getIp $iphost]
-    if {$ip == 0} { return 0 }
+    dict set data host $host
+    dict set data iphost $iphost
+    dict set data channel $channel
+    dict set data nick $nick
+    dict set data pub 0
 
-    # Do the DNSBL black magic
-    set dnsblData [::zapdnsbl::dnsCheckDnsbl $ip $iphost]
+    dnslookup $iphost ::zapdnsbl::resolveCallback $data
+}
+
+proc ::zapdnsbl::resolveCallback { ip hostname status data } {
+    # DNS lookup successfull?
+    if {$status == 0 && ![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $hostname]} {
+        ::zapdnsbl::debug "Couldn't resolve '$hostname'. No further action taken."
+        return 0
+    }
+
+    # Reverse the IP
+    regexp {([0-9]{1,3}).([0-9]{1,3}).([0-9]{1,3}).([0-9]{1,3})} $ip -> oct1 oct2 oct3 oct4
+    set reverseIp "$oct4.$oct3.$oct2.$oct1"
+
+    foreach bl [::ini::sections $::zapdnsbl::ini] {
+        ::zapdnsbl::debug "Trying blacklist $bl ($ip)"
+        if {[regexp {^bl\:} $bl]} {
+            set dnsbl [lindex [split $bl ":"] end]
+            dict set data blacklist $bl
+            dict set data ip $ip
+            dict set data hostname $hostname
+            if {[dict get $data pub] == 0} {
+                dnslookup $reverseIp.$dnsbl ::zapdnsbl::dnsblCallback $data
+            } else {
+                dnslookup $reverseIp.$dnsbl ::zapdnsbl::dnsblPubCallback $data
+            }
+        }
+    }
+}
+
+proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
+    set host [dict get $data host]
+    set blacklist [dict get $data blacklist]
+    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $host $status $blacklist]
+    regexp ".+@(.+)" [dict get $dnsblData host] -> iphost
 
     if {[dict get $dnsblData status] == "FOUND" } {
         # Check if unknown is enabled or abort
         if {![::zapdnsbl::isBanUnknownEnabled "bl:[dict get $dnsblData blacklist]"] && [dict get $dnsblData reason] == "Unknown"} {
-            ::zapdnsbl::debug "Host '$nick!$host ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
+            ::zapdnsbl::debug "Host '[dict get $dnsblData host] ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
             return 1
         }
-        putlog  "$::zapdnsbl::name - Host '$nick!$host ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
+        putlog "$::zapdnsbl::name - Host '[dict get $dnsblData host] ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
         set bantime [channel get $channel zapdnsbl.bantime]
         if {$bantime == 0} {
             putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
             set bantime 120
         }
 
-        newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+        #newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
         return 1
     }
     ::zapdnsbl::debug "Host '$iphost' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $dnsblData ip] - channel $channel"
@@ -187,38 +222,22 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
 # Public channel command to check if host appear in a DNS blacklist
 proc ::zapdnsbl::pubCheckDnsbl { nick host handle channel arg } {
     if {![channel get $channel zapdnsbl.pubcmd]} { return 0 }
-    set ip [::zapdnsbl::getIp $arg]
-    if {$ip == 0} { return 0 }
 
-    # Do the DNSBL black magic
-    set dnsblData [::zapdnsbl::dnsCheckDnsbl $ip $arg]
+    dict set data nick $nick
+    dict set data channel $channel
+    dict set data pub 1
 
-    if {[dict get $dnsblData status] == "FOUND"} {
-        puthelp "PRIVMSG $channel :$nick: $::zapdnsbl::name - Host '[dict get $dnsblData ip] ([dict get $dnsblData host])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]'"
-    } else {
-        puthelp "PRIVMSG $channel :$nick: $::zapdnsbl::name - Host '[dict get $dnsblData host]' is OK"
-    }
+    dnslookup $arg ::zapdnsbl::resolveCallback $data
 }
 
-# testHost - .zapblcheck <host>
-proc ::zapdnsbl::dccCheckDnsbl { nick idx host } {
-    if {[llength [split $host]] != 1} {
-        ::stderreu::zapblcheck $idx; return 0
-    }
-
-    set host [string tolower $host]
-
-    # Check if it is a numeric host
-    set ip [::zapdnsbl::getIp $host]
-    if {$ip == 0} { return 0 }
-
-    set dnsblData [::zapdnsbl::dnsCheckDnsbl $ip $host]
+proc ::zapdnsbl::dnsblPubCallback { ip hostname status data } {
+    set channel [dict get $data channel]
+    set nick [dict get $data nick]
+    set bl [lindex [split [dict get $data blacklist] :] 1]
+    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname 0 $status [dict get $data blacklist]]
 
     if {[dict get $dnsblData status] == "FOUND"} {
-        putlog "$::zapdnsbl::name - TEST: Host '[dict get $dnsblData ip] ([dict get $dnsblData host])' was found in [dict get $dnsblData blacklist] reason: [dict get $dnsblData reason]"
-        putlog "$::zapdnsbl::name - TEST: Ban message for '[dict get $dnsblData host]': [dict get $dnsblData banreason]"
-    } else {
-        putlog "$::zapdnsbl::name - TEST: Host '[dict get $dnsblData ip] ([dict get $dnsblData host])' was NOT found in any blacklist, status [dict get $dnsblData status]"
+        puthelp "PRIVMSG $channel :$nick: $::zapdnsbl::name - Host [dict get $data ip] ([dict get $data hostname]) found in $bl reason '[dict get $dnsblData reason]'"
     }
 }
 
@@ -232,26 +251,12 @@ proc ::zapdnsbl::dccConfig { nick idx arg } {
 
 
     # Allowed string options
-    set allowed_str_opts [list nameserver dnstimeout bl]
+    set allowed_str_opts [list bl]
 
     # Allowed boolean options
     #set allowed_bool_opts [list ]
     if {[lsearch -exact $allowed_str_opts $key] != -1} {
-        if {$key == "nameserver" && $value != ""} {
-            if {[regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $value]} {
-                ::zapdnsbl::setConfigValuePair options $key $value
-                putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
-            } else {
-                putdcc $idx "$::zapdnsbl::name: Invalid ip address ($value) for option 'nameserver'"
-            }
-        } elseif {$key == "dnstimeout" && $value != ""} {
-            if {[regexp {[0-9]+} $value]} {
-                ::zapdnsbl::setConfigValuePair options $key $value
-                putdcc $idx "$::zapdnsbl::name: Option '$key' set with the value '$value'"
-            } else {
-                putdcc $idx "$::zapdnsbl::name: Invalud value for dnstimeout, must be an integer."
-            }
-        } elseif {$key == "bl"} {
+        if {$key == "bl"} {
             if {[llength [split $value]] > 0} {
                 set action [lindex [split $value] 0]
 
@@ -287,95 +292,24 @@ proc ::zapdnsbl::dccConfig { nick idx arg } {
     }
 }
 
-proc ::zapdnsbl::dnsCheckDnsbl { ip host } {
-    # Reverse the IP
-    regexp {([0-9]{1,3}).([0-9]{1,3}).([0-9]{1,3}).([0-9]{1,3})} $ip -> oct1 oct2 oct3 oct4
-    set reverseIp "$oct4.$oct3.$oct2.$oct1"
-
+proc ::zapdnsbl::getDnsblData { ip hostname host status blacklist } {
     # Default dnsbl stuff
     dict set dnsblData status "OK"
     dict set dnsblData ip $ip
+    dict set dnsblData hostname $hostname
     dict set dnsblData host $host
 
-    foreach bl [::ini::sections $::zapdnsbl::ini] {
-        ::zapdnsbl::debug "Trying blacklist $bl ($ip)"
-        if {[regexp {^bl\:} $bl]} {
-            set dnsbl [lindex [split $bl ":"] end]
-            set address [::zapdnsbl::dnsQuery $reverseIp.$dnsbl dnsbl]
-            if {[regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} [lindex $address 0]]} {
-                dict set dnsblData status "FOUND"
+    if {$status == 1 && [regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
+        dict set dnsblData status "FOUND"
 
-                foreach ipAdd $address {
-                    set blr [::zapdnsbl::getDnsblReason $bl $ipAdd]
-                    if {[info exists reason] && [lsearch $reason $blr] == -1} {
-                        lappend reason $blr
-                    } elseif {![info exists reason]} {
-                        lappend reason $blr
-                    }
-                }
-
-                set reason [join [lsort $reason] ", "]
-                set template [list %reason% $reason \
-                                  %ip% $ip]
-                dict set dnsblData reason $reason
-                dict set dnsblData banreason [::zapdnsbl::template [::zapdnsbl::getBanReason $bl] $template]
-                dict set dnsblData blacklist $dnsbl
-
-                return $dnsblData
-            }
-        }
+        set reason [::zapdnsbl::getDnsblReason $blacklist $ip]
+        set template [list %reason% $reason \
+                          %ip% $ip]
+        dict set dnsblData reason $reason
+        dict set dnsblData banreason [::zapdnsbl::template [::zapdnsbl::getBanReason $blacklist] $template]
+        dict set dnsblData blacklist $blacklist
     }
     return $dnsblData
-}
-
-proc ::zapdnsbl::dnsQuery { host mode } {
-    set timer [clock clicks -milliseconds]
-    set dnsTimeout 30000
-    if {[::ini::exists $::zapdnsbl::ini options dnstimeout]} {
-        set timeout [::ini::value $::zapdnsbl::ini options dnstimeout]
-        if {$timeout > 0} {
-            set dnsTimeout [expr {int($timeout * 1000)}]
-            ::zapdnsbl::debug "DNS timeout set to $dnsTimeout milliseconds"
-        }
-    }
-    if {[::ini::exists $::zapdnsbl::ini options nameserver]} {
-        set nameserver [::ini::value $::zapdnsbl::ini options nameserver]
-        ::zapdnsbl::debug "Nameserver override detected, forced to '$nameserver'"
-        set result [::dns::resolve $host -server $nameserver -timeout $dnsTimeout]
-    } else {
-        set result [::dns::resolve $host -timeout $dnsTimeout]
-    }
-
-    ::dns::wait $result
-    ::zapdnsbl::debug "Query time ($host): [expr {int([clock clicks -milliseconds] - $timer)}] msec"
-
-    switch -- [::dns::status $result] {
-        ok {
-            # Just pick the first entry if a list is returned
-            set address [::dns::address $result]
-            ::zapdnsbl::debug "Resolved address $address"
-            ::dns::cleanup $result
-            return $address
-        }
-        error {
-            set error [::dns::error $result]
-            ::dns::cleanup $result
-            if {$mode == "resolve"} {
-                return $error
-            } elseif {$mode == "dnsbl" && [string match "domain does not exist" $error]} {
-                return ""
-            }
-            return $error
-        }
-        timeout {
-            putlog "$::zapdnsbl::name - dnsQuery() timeout ($host)"
-            return ""
-        }
-        eof {
-            putlog "$::zapdnsbl::name - dnsQuery() eof"
-            return ""
-        }
-    }
 }
 
 # This function will replace %keywords% with supplied substitutes
@@ -471,9 +405,6 @@ proc ::stderreu::zapblcheck { idx } {
 proc ::stderreu::zapblconfig { idx } {
     putidx $idx "### \002zablconfig <option> \[value\]\002"
     putidx $idx "    \002Options\002:"
-    putidx $idx "      nameserver \[ip\]       : Override system default DNS resolver configuration."
-    putidx $idx "                              NOTE: This option is necessary for windrop users."
-    putidx $idx "      dnstimeout \[seconds\]  : Set timeout for DNS queries, default is 30 seconds."
     putidx $idx "      bl <action>           : Manage blacklists"
     putidx $idx "                              Valid actions: list"
     putidx $idx "    \002*NOTE*\002:"
