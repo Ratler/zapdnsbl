@@ -67,7 +67,6 @@ setudef int zapdnsbl.bantime
 # Packages
 package require Tcl 8.5
 package require inifile
-package require dns
 
 # Bindings
 bind evnt - prerehash ::zapdnsbl::onEvent
@@ -343,23 +342,6 @@ proc ::zapdnsbl::getBanReason { bl } {
         return [::ini::value $::zapdnsbl::ini $bl default_ban_message]
     }
     return ""
-}
-
-# Getter to retrieve ip from host
-proc ::zapdnsbl::getIp { iphost } {
-    if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $iphost]} {
-        set ip [::zapdnsbl::dnsQuery $iphost resolve]
-        if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
-            ::zapdnsbl::debug "DNS ERROR: $ip"
-            putlog "$::zapdnsbl::name - Couldn't resolve '$iphost'. No further action taken."
-
-            # Abort if we fail to resolve the host
-            return 0
-        }
-    } else {
-        set ip $iphost
-    }
-    return $ip
 }
 
 # Getter to retrieve ban_unknown from a blacklist, returns true or false
