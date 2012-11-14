@@ -369,10 +369,10 @@ proc ::zapdnsbl::getHexToIP { hex } {
     # Simple check to validate proper hex string
     if {[regexp {^[a-fA-F0-9]+$} $hex]} {
         set dec [expr 0x$hex]
-        set o1 [expr ($dec >> 24) & 0xff]
-        set o2 [expr ($dec >> 16) & 0xff]
-        set o3 [expr ($dec >> 8) & 0xff]
-        set o4 [expr $dec & 0xff]
+        set o1 [expr {($dec >> 24) & 0xff}]
+        set o2 [expr {($dec >> 16) & 0xff}]
+        set o3 [expr {($dec >> 8) & 0xff}]
+        set o4 [expr {$dec & 0xff}]
 
         return "$o1.$o2.$o3.$o4"
     }
