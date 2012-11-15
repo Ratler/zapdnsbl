@@ -218,10 +218,15 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             set bantime 120
         }
 
-        if {[dict exists $data webchat]} {
+        if {[dict exists $data webchat]} {    
             regexp "(.+)@.+" $host -> hex
-            if {[matchban "*!$hex@*.html.chat" $channel]} { return 1 }
+            ::zapdnsbl::debug "Ban webchat before newchanban: $hex"
+            if {[matchban "*!$hex@*.html.chat" $channel]} { 
+                ::zapdnsbl::debug "Ban webchat matchban: $hex"
+                return 1 
+            }
             newchanban $channel "*!$hex@*.html.chat" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+            ::zapdnsbl::debug "Ban webchat after newchanban: $hex"
         } else {
             if {[matchban "*!*@$iphost" $channel]} { return 1 }
             newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
