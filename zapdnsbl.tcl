@@ -225,7 +225,8 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
                 ::zapdnsbl::debug "Ban webchat matchban: $hex"
                 return 1 
             }
-            newchanban $channel "*!$hex@*.html.chat" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+            putquick "KICK $channel $nick :[dict get $dnsblData banreason]"
+            putquick "MODE $channel +b *!*$hex@*.html.chat"
             ::zapdnsbl::debug "Ban webchat after newchanban: $hex"
         } else {
             if {[matchban "*!*@$iphost" $channel]} { return 1 }
