@@ -87,7 +87,7 @@ proc ::zapdnsbl::debug { text } {
 
 namespace eval ::zapdnsbl {
     # Global variables
-    variable version "0.6-dev"
+    variable version "0.7-kiril-dev"
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
     variable ini
