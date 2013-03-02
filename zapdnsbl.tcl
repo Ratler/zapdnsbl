@@ -145,7 +145,7 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
     if {![channel get $channel zapdnsbl]} { return 1 }
 
     # Exclude ops, voice, friends
-    if {[matchattr $handle fov|fov $channel]} {
+    if {[matchattr $handle o|o $channel]} {
         putlog  "$::zapdnsbl::name - $nick is on exempt list"
         return 1
     }
