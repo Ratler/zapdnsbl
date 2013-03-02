@@ -151,11 +151,12 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
     }
 
     # Special stuff for kiril
-    if {[regexp {^[a-fA-F0-9]{1,8}@.*\.html\.chat$} $host]} {
+    if {[regexp {^[a-fA-F0-9]{8}@.*\.html\.chat$} $host]} {
         if {![channel get $channel zapdnsbl.hexlookup]} { return 1 }
         regexp "(.+)@.+" $host -> hex
         dict set data webchat 1
-        set iphost [::zapdnsbl::getHexToIP $hex]
+        set iphost [::zapdnsbl::getIPFromHex $hex]
+        if {$iphost == 0} { return 1 }
     } else {
         regexp ".+@(.+)" $host -> iphost
         set iphost [string tolower $iphost]
@@ -218,12 +219,12 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             set bantime 120
         }
 
-        if {[dict exists $data webchat]} {    
+        if {[dict exists $data webchat]} {
             regexp "(.+)@.+" $host -> hex
             ::zapdnsbl::debug "Ban webchat before newchanban: $hex"
-            if {[matchban "*!$hex@*.html.chat" $channel]} { 
+            if {[matchban "*!$hex@*.html.chat" $channel]} {
                 ::zapdnsbl::debug "Ban webchat matchban: $hex"
-                return 1 
+                return 1
             }
             putquick "KICK $channel $nick :[dict get $dnsblData banreason]"
             putquick "MODE $channel +b *!*$hex@*.html.chat"
@@ -371,9 +372,9 @@ proc ::zapdnsbl::isBanUnknownEnabled { bl } {
 }
 
 # Translate hex string to ip
-proc ::zapdnsbl::getHexToIP { hex } {
+proc ::zapdnsbl::getIPFromHex { hex } {
     # Simple check to validate proper hex string
-    if {[regexp {^[a-fA-F0-9]+$} $hex]} {
+    if {[regexp {^[a-fA-F0-9]{8}$} $hex]} {
         set dec [expr 0x$hex]
         set o1 [expr {($dec >> 24) & 0xff}]
         set o2 [expr {($dec >> 16) & 0xff}]
