@@ -1,5 +1,5 @@
 #
-# zapdnsbl.tcl  Version: 0.6-dev  Author: Stefan Wold <ratler@stderr.eu>
+# zapdnsbl.tcl  Version: 0.7-kiril-dev  Author: Stefan Wold <ratler@stderr.eu>
 ###
 # Info:
 # ZAP DNS Blacklist is a script that take the host of a user joining
@@ -29,7 +29,7 @@
 #
 ###
 # LICENSE:
-# Copyright (C) 2010 - 2012  Stefan Wold <ratler@stderr.eu>
+# Copyright (C) 2010 - 2013  Stefan Wold <ratler@stderr.eu>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -75,7 +75,6 @@ bind evnt - save ::zapdnsbl::onEvent
 bind evnt - sigquit ::zapdnsbl::onEvent
 bind evnt - sigterm ::zapdnsbl::onEvent
 bind join - * ::zapdnsbl::onJoin
-bind dcc - zapblcheck ::zapdnsbl::dccCheckDnsbl
 bind dcc m|o zapblconfig ::zapdnsbl::dccConfig
 bind dcc - help ::stderreu::help
 bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
@@ -151,7 +150,7 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
     }
 
     # Special stuff for kiril
-    if {[regexp {^[a-fA-F0-9]{8}@.*\.html\.chat$} $host]} {
+    if {[regexp {(?i)^[A-F0-9]{8}@.*\.html\.chat$} $host]} {
         if {![channel get $channel zapdnsbl.hexlookup]} { return 1 }
         regexp "(.+)@.+" $host -> hex
         dict set data webchat 1
@@ -210,7 +209,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
     if {[dict get $dnsblData status] == "FOUND" } {
         # Check if unknown is enabled or abort
         if {![::zapdnsbl::isBanUnknownEnabled "[dict get $dnsblData blacklist]"] && [dict get $dnsblData reason] == "Unknown"} {
-            ::zapdnsbl::debug "Host '[dict get $dnsblData host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
+            ::zapdnsbl::debug "Host '[dict get $dnsblData hostname] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
             return 1
         }
         set bantime [channel get $channel zapdnsbl.bantime]
