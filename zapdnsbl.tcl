@@ -68,6 +68,7 @@ setudef int zapdnsbl.bantime
 # Packages
 package require Tcl 8.5
 package require inifile
+package require ip
 
 # Bindings
 bind evnt - prerehash ::zapdnsbl::onEvent
@@ -91,7 +92,7 @@ namespace eval ::zapdnsbl {
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
     variable ini
-
+    variable exemptCidrList
 
     # Parse INI file
     if {[file exists $::zapdnsbl::inifile]} {
@@ -103,6 +104,26 @@ namespace eval ::zapdnsbl {
             } else {
                 ::zapdnsbl::debug "Loading $::zapdnsbl::name '$section'"
             }
+        }
+
+        # Parse CIDR file
+        if {[::ini::exists $::zapdnsbl::ini "config"] && [::ini::exists $::zapdnsbl::ini "config" "exempt_cidr_file"]} {
+            set cidr [::ini::value $::zapdnsbl::ini "config" "exempt_cidr_file"]
+            if {[file exists $cidr]} {
+                ::zapdnsbl::debug "Loading CIDR list from $cidr"
+                set fcidr [open $cidr]
+                while {![eof $fcidr]} {
+                    gets $fcidr line
+                    if {[regexp {^[0-9]} $line]} {
+                        regexp -nocase {^([0-9\.\/]+)} $line -> mask
+                        lappend ::zapdnsbl::exemptCidrList $mask
+                    }
+                }
+                close $fcidr
+                ::zapdnsbl::debug "CIDR file loaded with [llength $::zapdnsbl::exemptCidrList] netmask(s)"
+            }
+        } else {
+            ::zapdnsbl::debug "Missing 'global' section and/or key 'exempt_cidr_list=/path/to/cidr.txt'"
         }
     }
 }
@@ -227,7 +248,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
     set blacklist [dict get $data blacklist]
     set channel [dict get $data channel]
     set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $status $data]
-    regexp ".+@(.+)" [dict get $data host] -> iphost
+    regexp ".+@(.+)" $host -> iphost
 
     if {[dict get $dnsblData status] == "FOUND" } {
         # Check if unknown is enabled or abort
@@ -241,6 +262,12 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             if {$bantime == 0} {
                 putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
                 set bantime 120
+            }
+        } else {
+            # Check exempt here since this is the place where we have the actual IP resolved
+            if {[::ip::longestPrefixMatch [dict get $data ip] $::zapdnsbl::exemptCidrList] != ""} {
+                ::zapdnsbl::debug "$host ([dict get $data ip]) is on the exempt list"
+                return 1
             }
         }
 
