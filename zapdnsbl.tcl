@@ -304,7 +304,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
 
 proc ::zapdnsbl::notifyBackChannel { msg } {
     if {[::ini::exists $::zapdnsbl::ini config backchan] && [botonchan [::ini::value $::zapdnsbl::ini config backchan]]} {
-        set backchan [::ini::value $::zapdnsbl::ini options backchan]
+        set backchan [::ini::value $::zapdnsbl::ini config backchan]
         puthelp "PRIVMSG $backchan :$msg"
     }
 }
