@@ -29,7 +29,7 @@
 #
 ###
 # LICENSE:
-# Copyright (C) 2010 - 2013  Stefan Wold <ratler@stderr.eu>
+# Copyright (C) 2010 - 2016  Stefan Wold <ratler@stderr.eu>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -75,6 +75,7 @@ bind evnt - save ::zapdnsbl::onEvent
 bind evnt - sigquit ::zapdnsbl::onEvent
 bind evnt - sigterm ::zapdnsbl::onEvent
 bind join - * ::zapdnsbl::onJoin
+bind raw - NOTICE ::zapdnsbl::onServerNotice
 bind dcc m|o zapblconfig ::zapdnsbl::dccConfig
 bind dcc - help ::stderreu::help
 bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
@@ -86,7 +87,7 @@ proc ::zapdnsbl::debug { text } {
 
 namespace eval ::zapdnsbl {
     # Global variables
-    variable version "0.7-kiril-dev"
+    variable version "0.8-kiril-dev"
     variable name "zapdnsbl"
     variable longName "ZAP DNS Blacklist"
     variable ini
@@ -150,17 +151,11 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
     }
 
     # Special stuff for kiril
-    if {[regexp {(?i)^[A-F0-9]{8}@.*\.html\.chat$} $host]} {
+    if {[regexp {(?i)^[A-F0-9]{8}@.*(\.html\.chat|\.kiwiirc\.com)$} $host]} {
         if {![channel get $channel zapdnsbl.hexlookup]} { return 1 }
-        regexp "(.+)@.+" $host -> hex
-        dict set data webchat 1
-        set iphost [::zapdnsbl::getIPFromHex $hex]
-        if {$iphost == 0} { return 1 }
-    } else {
-        regexp ".+@(.+)" $host -> iphost
-        set iphost [string tolower $iphost]
     }
-
+    set data [::zapdnsbl::getIpHost $host]
+    if {[dict get $data iphost] == 0} { return 1 }
     dict set data host $host
     dict set data iphost $iphost
     dict set data channel $channel
@@ -168,6 +163,34 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
     dict set data pub 0
 
     dnslookup $iphost ::zapdnsbl::resolveCallback $data
+}
+
+proc ::zapdnsbl::onServerNotice { from keyword text } {
+    if {[string match "*Client connecting:*" $text]} {
+        regexp {.*\((.+@[^\)]+)} $text matched host
+        set data [::zapdnsbl::getIpHost $host]
+        if {[dict get $data iphost] == 0} { return 1 }
+        putlog "Host: $host = [dict get $data iphost]"
+        dict set data host $host
+        dict set data channel 0
+        dict set data nick 0
+        dict set data pub 0
+
+        dnslookup [dict get $data iphost] ::zapdnsbl::resolveCallback $data
+    }
+}
+
+proc ::zapdnsbl::getIpHost { host } {
+    if {[regexp {(?i)^[A-F0-9]{8}@.*(\.html\.chat|\.kiwiirc\.com)$} $host]} {
+        regexp "(.+)@.+" $host -> hex
+        dict set data webchat 1
+        set iphost [::zapdnsbl::getIPFromHex $hex]
+    } else {
+        regexp ".+@(.+)" $host -> iphost
+        set iphost [string tolower $iphost]
+    }
+    dict set data iphost $iphost
+    return $data
 }
 
 proc ::zapdnsbl::resolveCallback { ip hostname status data } {
@@ -212,25 +235,39 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             ::zapdnsbl::debug "Host '[dict get $dnsblData hostname] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
             return 1
         }
-        set bantime [channel get $channel zapdnsbl.bantime]
-        if {$bantime == 0} {
-            putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
-            set bantime 120
+
+        if {$channel != 0} {
+            set bantime [channel get $channel zapdnsbl.bantime]
+            if {$bantime == 0} {
+                putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
+                set bantime 120
+            }
         }
 
         if {[dict exists $data webchat]} {
-            regexp "(.+)@.+" $host -> hex
-            ::zapdnsbl::debug "Ban webchat before newchanban: $hex"
-            if {[matchban "*!$hex@*.html.chat" $channel]} {
-                ::zapdnsbl::debug "Ban webchat matchban: $hex"
-                return 1
+            regexp {(.+)@[^\.]+\.(.+)} $host -> hex webHost
+
+            if {$channel == 0} {
+                ::zapdnsbl::debug "Adding webchat KLINE for *$hex@*.$webHost"
+                putquick "KLINE 1440 *$hex@*.$webHost :[dict get $dnsblData banreason]"
+            } else {
+                ::zapdnsbl::debug "Ban webchat before newchanban: $hex"
+                if {[matchban "*!$hex@*.html.chat" $channel]} {
+                    ::zapdnsbl::debug "Ban webchat matchban: $hex"
+                    return 1
+                }
+                putquick "KICK $channel $nick :[dict get $dnsblData banreason]"
+                putquick "MODE $channel +b *!*$hex@*.html.chat"
+                ::zapdnsbl::debug "Ban webchat after newchanban: $hex"
             }
-            putquick "KICK $channel $nick :[dict get $dnsblData banreason]"
-            putquick "MODE $channel +b *!*$hex@*.html.chat"
-            ::zapdnsbl::debug "Ban webchat after newchanban: $hex"
         } else {
-            if {[matchban "*!*@$iphost" $channel]} { return 1 }
-            newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+            if {$channel == 0} {
+                ::zapdnsbl::debug "Adding KLINE for *@$iphost"
+                putquick "KLINE 1440 *@$iphost :[dict get $dnsblData banreason]"
+            } else {
+                if {[matchban "*!*@$iphost" $channel]} { return 1 }
+                newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+            }
         }
         putlog "$::zapdnsbl::name - Host '[dict get $data host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
     }
