@@ -277,7 +277,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             if {$channel == 0} {
                 ::zapdnsbl::debug "Adding webchat KLINE for *$hex@*.$webHost"
                 putquick "KLINE 1440 *$hex@*.$webHost :[dict get $dnsblData banreason]"
-                ::zapdnsbl::notifyBackChannel "KLINE 1440 *$hex@*.$webHost :[dict get $dnsblData banreason]"
+                ::zapdnsbl::notifyBackChannel "KLINE 1440 *$hex@*.$webHost [dict get $dnsblData banreason]"
             } else {
                 ::zapdnsbl::debug "Ban webchat before newchanban: $hex"
                 if {[matchban "*!$hex@*.html.chat" $channel]} {
@@ -292,7 +292,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             if {$channel == 0} {
                 ::zapdnsbl::debug "Adding KLINE for *@$iphost"
                 putquick "KLINE 1440 *@$iphost :[dict get $dnsblData banreason]"
-                ::zapdnsbl::notifyBackChannel "KLINE 1440 *@$iphost :[dict get $dnsblData banreason]"
+                ::zapdnsbl::notifyBackChannel "KLINE 1440 *@$iphost [dict get $dnsblData banreason]"
             } else {
                 if {[matchban "*!*@$iphost" $channel]} { return 1 }
                 newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
