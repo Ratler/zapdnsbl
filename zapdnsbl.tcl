@@ -123,7 +123,7 @@ namespace eval ::zapdnsbl {
                 ::zapdnsbl::debug "CIDR file loaded with [llength $::zapdnsbl::exemptCidrList] netmask(s)"
             }
         } else {
-            ::zapdnsbl::debug "Missing 'global' section and/or key 'exempt_cidr_list=/path/to/cidr.txt'"
+            ::zapdnsbl::debug "Missing 'config' section and/or key 'exempt_cidr_list=/path/to/cidr.txt'"
         }
     }
 }
@@ -191,7 +191,7 @@ proc ::zapdnsbl::onServerNotice { from keyword text } {
         regexp {.*\((.+@[^\)]+)} $text matched host
         set data [::zapdnsbl::getIpHost $host]
         if {[dict get $data iphost] == 0} { return 1 }
-        putlog "Host: $host = [dict get $data iphost]"
+        ::zapdnsbl::debug "Host: $host = [dict get $data iphost]"
         dict set data host $host
         dict set data channel 0
         dict set data nick 0
@@ -277,6 +277,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             if {$channel == 0} {
                 ::zapdnsbl::debug "Adding webchat KLINE for *$hex@*.$webHost"
                 putquick "KLINE 1440 *$hex@*.$webHost :[dict get $dnsblData banreason]"
+                ::zapdnsbl::notifyBackChannel "KLINE 1440 *$hex@*.$webHost :[dict get $dnsblData banreason]"
             } else {
                 ::zapdnsbl::debug "Ban webchat before newchanban: $hex"
                 if {[matchban "*!$hex@*.html.chat" $channel]} {
@@ -291,12 +292,20 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             if {$channel == 0} {
                 ::zapdnsbl::debug "Adding KLINE for *@$iphost"
                 putquick "KLINE 1440 *@$iphost :[dict get $dnsblData banreason]"
+                ::zapdnsbl::notifyBackChannel "KLINE 1440 *@$iphost :[dict get $dnsblData banreason]"
             } else {
                 if {[matchban "*!*@$iphost" $channel]} { return 1 }
                 newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
             }
         }
         putlog "$::zapdnsbl::name - Host '[dict get $data host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
+    }
+}
+
+proc ::zapdnsbl::notifyBackChannel { msg } {
+    if {[::ini::exists $::zapdnsbl::ini config backchan] && [botonchan [::ini::value $::zapdnsbl::ini config backchan]]} {
+        set backchan [::ini::value $::zapdnsbl::ini options backchan]
+        puthelp "PRIVMSG $backchan :$msg"
     }
 }
 
