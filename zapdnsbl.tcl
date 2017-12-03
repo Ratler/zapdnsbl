@@ -29,7 +29,7 @@
 #
 ###
 # LICENSE:
-# Copyright (C) 2010 - 2012  Stefan Wold <ratler@stderr.eu>
+# Copyright (C) 2010 - 2017  Stefan Wold <ratler@stderr.eu>
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -67,7 +67,7 @@ setudef int zapdnsbl.bantime
 # Packages
 package require Tcl 8.5
 package require inifile
-package require dns
+package require ip
 
 # Bindings
 bind evnt - prerehash ::zapdnsbl::onEvent
@@ -125,7 +125,6 @@ proc ::zapdnsbl::onEvent { type } {
         save {
             putlog "$::zapdnsbl::name - Saving ini file"
             ::ini::commit $::zapdnsbl::ini
-
         }
         sigquit {
             ::zapdnsbl::saveAndCloseIniFile
@@ -187,8 +186,10 @@ proc ::zapdnsbl::resolveCallback { ip hostname status data } {
             dict set data hostname $hostname
             if {[dict get $data pub] == 0} {
                 dnslookup $reverseIp.$dnsbl ::zapdnsbl::dnsblCallback $data
-            } else {
+            } elseif {[dict get $data pub] == 1} {
                 dnslookup $reverseIp.$dnsbl ::zapdnsbl::dnsblPubCallback $data
+            } else {
+                dnslookup $reverseIp.$dnsbl ::zapdnsbl::dnsblDccCallback $data
             }
         }
     }
@@ -197,11 +198,14 @@ proc ::zapdnsbl::resolveCallback { ip hostname status data } {
 proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
     set host [dict get $data host]
     set blacklist [dict get $data blacklist]
+    set channel [dict get $data channel]
     set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $host $status $blacklist]
+
     regexp ".+@(.+)" [dict get $dnsblData host] -> iphost
 
     if {[dict get $dnsblData status] == "FOUND" } {
-        # Check if unknown is enabled or abort
+        if {[matchban "*!*@$iphost" $channel]} { return 1 }
+       # Check if unknown is enabled or abort
         if {![::zapdnsbl::isBanUnknownEnabled "bl:[dict get $dnsblData blacklist]"] && [dict get $dnsblData reason] == "Unknown"} {
             ::zapdnsbl::debug "Host '[dict get $dnsblData host] ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
             return 1
@@ -212,11 +216,29 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
             set bantime 120
         }
-
-        #newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+        newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+        putlog "$::zapdnsbl::name - Host '[dict get $data host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
         return 1
-    }
+   }
     ::zapdnsbl::debug "Host '$iphost' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $dnsblData ip] - channel $channel"
+}
+
+# Dcc command to check if ip/hostname appear in a DNS blacklist
+proc ::zapdnsbl::dccCheckDnsbl { nick idx host } {
+    dict set data idx $idx
+    dict set data pub 2
+
+    dnslookup $host ::zapdnsbl::resolveCallback $data
+}
+
+proc ::zapdnsbl::dnsblDccCallback { ip hostname status data } {
+    set idx [dict get $data idx]
+    set bl [lindex [split [dict get $data blacklist] :] 1]
+    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname 0 $status [dict get $data blacklist]]
+
+    if {[dict get $dnsblData status] == "FOUND"} {
+        putidx $idx "$::zapdnsbl::name - Host [dict get $data ip] ([dict get $data hostname]) found in $bl reason '[dict get $dnsblData reason]'"
+    }
 }
 
 # Public channel command to check if host appear in a DNS blacklist
@@ -343,23 +365,6 @@ proc ::zapdnsbl::getBanReason { bl } {
         return [::ini::value $::zapdnsbl::ini $bl default_ban_message]
     }
     return ""
-}
-
-# Getter to retrieve ip from host
-proc ::zapdnsbl::getIp { iphost } {
-    if {![regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $iphost]} {
-        set ip [::zapdnsbl::dnsQuery $iphost resolve]
-        if {![regexp {[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
-            ::zapdnsbl::debug "DNS ERROR: $ip"
-            putlog "$::zapdnsbl::name - Couldn't resolve '$iphost'. No further action taken."
-
-            # Abort if we fail to resolve the host
-            return 0
-        }
-    } else {
-        set ip $iphost
-    }
-    return $ip
 }
 
 # Getter to retrieve ban_unknown from a blacklist, returns true or false
