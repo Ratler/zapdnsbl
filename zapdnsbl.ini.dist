@@ -33,27 +33,11 @@ reply:4=HTTP Proxy
 reply:5=IRC Drone
 reply:6=TOR
 
-[bl:dnsbl.ahbl.org]
-ban_unknown=false
-default_ban_message=Your host is listed in AHBL (%reason%). http://ahbl.org/lktool?ip=%ip% for info.
-reply:2=Open Relay
-reply:3=Open Proxy
-reply:4=Spam Source
-reply:5=Provisional Spam Source Listing block
-reply:6=Formmail Spam
-reply:7=Spam Supporter
-reply:8=Spam Supporter (indirect)
-reply:9=End User (non mail system)
-reply:10=Shoot On Sight
-reply:14=Compromised System - DDoS
-reply:15=Compromised System - Relay
-reply:16=Compromised System - Autorooter/Scanner
-reply:17=Compromised System - Worm or mass mailing virus
-reply:18=Compromised System - Other virus
-reply:19=Open Proxy
-reply:20=Blog/Wiki/Comment Spammer
-reply:127=Other
-
 [bl:cbl.abuseat.org]
 ban_unknown=true
 default_ban_message=Your host is listed in CBL (%reason%). Visit http://cbl.abuseat.org/lookup.cgi?ip=%ip% for info.
+
+[bl:torexit.dan.me.uk]
+ban_unknown=false
+reply:100=TOR Exit Node
+default_ban_message=Your host is listed in an DNSBL (%reason%).
