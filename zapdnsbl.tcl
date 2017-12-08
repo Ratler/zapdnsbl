@@ -201,7 +201,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
     set channel [dict get $data channel]
     set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $status $data]
 
-    regexp ".+@(.+)" [dict get $dnsblData host] -> iphost
+    regexp ".+@(.+)" $host -> iphost
 
     if {[dict get $dnsblData status] == "FOUND" } {
         if {[matchban "*!*@$iphost" $channel]} { return 1 }
