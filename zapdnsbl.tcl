@@ -207,10 +207,10 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
         if {[matchban "*!*@$iphost" $channel]} { return 1 }
        # Check if unknown is enabled or abort
         if {![::zapdnsbl::isBanUnknownEnabled "bl:[dict get $dnsblData blacklist]"] && [dict get $dnsblData reason] == "Unknown"} {
-            ::zapdnsbl::debug "Host '[dict get $dnsblData host] ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
+            ::zapdnsbl::debug "Host '[dict get $dnsblData hostname] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
             return 1
         }
-        putlog "$::zapdnsbl::name - Host '[dict get $dnsblData host] ([dict get $dnsblData ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
+        putlog "$::zapdnsbl::name - Host '[dict get $dnsblData hostname] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
         set bantime [channel get $channel zapdnsbl.bantime]
         if {$bantime == 0} {
             putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
@@ -220,7 +220,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
         putlog "$::zapdnsbl::name - Host '[dict get $data host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
         return 1
    }
-    ::zapdnsbl::debug "Host '$iphost' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $dnsblData ip] - channel $channel"
+    ::zapdnsbl::debug "Host '$iphost' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $data ip] - channel $channel"
 }
 
 # Dcc command to check if ip/hostname appear in a DNS blacklist
