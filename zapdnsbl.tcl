@@ -199,7 +199,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
     set host [dict get $data host]
     set blacklist [dict get $data blacklist]
     set channel [dict get $data channel]
-    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $host $status $blacklist]
+    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $status $data]
 
     regexp ".+@(.+)" [dict get $dnsblData host] -> iphost
 
@@ -234,7 +234,7 @@ proc ::zapdnsbl::dccCheckDnsbl { nick idx host } {
 proc ::zapdnsbl::dnsblDccCallback { ip hostname status data } {
     set idx [dict get $data idx]
     set bl [lindex [split [dict get $data blacklist] :] 1]
-    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname 0 $status [dict get $data blacklist]]
+    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $status $data]
 
     if {[dict get $dnsblData status] == "FOUND"} {
         putidx $idx "$::zapdnsbl::name - Host [dict get $data ip] ([dict get $data hostname]) found in $bl reason '[dict get $dnsblData reason]'"
@@ -256,7 +256,7 @@ proc ::zapdnsbl::dnsblPubCallback { ip hostname status data } {
     set channel [dict get $data channel]
     set nick [dict get $data nick]
     set bl [lindex [split [dict get $data blacklist] :] 1]
-    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname 0 $status [dict get $data blacklist]]
+    set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $status $data]
 
     if {[dict get $dnsblData status] == "FOUND"} {
         puthelp "PRIVMSG $channel :$nick: $::zapdnsbl::name - Host [dict get $data ip] ([dict get $data hostname]) found in $bl reason '[dict get $dnsblData reason]'"
@@ -314,7 +314,8 @@ proc ::zapdnsbl::dccConfig { nick idx arg } {
     }
 }
 
-proc ::zapdnsbl::getDnsblData { ip hostname host status blacklist } {
+proc ::zapdnsbl::getDnsblData { ip hostname status data } {
+    set blacklist [dict get $data blacklist]
     # Default dnsbl stuff
     dict set dnsblData status "OK"
     dict set dnsblData hostname $hostname
