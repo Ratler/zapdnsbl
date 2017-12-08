@@ -317,16 +317,14 @@ proc ::zapdnsbl::dccConfig { nick idx arg } {
 proc ::zapdnsbl::getDnsblData { ip hostname host status blacklist } {
     # Default dnsbl stuff
     dict set dnsblData status "OK"
-    dict set dnsblData ip $ip
     dict set dnsblData hostname $hostname
-    dict set dnsblData host $host
 
     if {$status == 1 && [regexp {^[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}.[0-9]{1,3}$} $ip]} {
         dict set dnsblData status "FOUND"
 
         set reason [::zapdnsbl::getDnsblReason $blacklist $ip]
         set template [list %reason% $reason \
-                          %ip% $ip]
+                           %ip% [dict get $data ip]]
         dict set dnsblData reason $reason
         dict set dnsblData banreason [::zapdnsbl::template [::zapdnsbl::getBanReason $blacklist] $template]
         dict set dnsblData blacklist $blacklist
