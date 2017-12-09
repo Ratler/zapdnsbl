@@ -236,7 +236,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
 
         if {[dict exists $data ident]} {
             regexp {(.+)@[^\.]+\.(.+)} $host -> hex webHost
-            if {[matchban $channel "*!@hex@*.$webHost" $channel]} { return 1 }
+            if {[matchban "*!@hex@*.$webHost" $channel]} { return 1 }
             newchanban $channel "*!$hex@*.$webHost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
         } else {
             regexp ".+@(.+)" $host -> iphost
