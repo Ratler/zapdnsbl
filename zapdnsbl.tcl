@@ -154,16 +154,36 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
         return 1
     }
 
-    regexp ".+@(.+)" $host -> iphost
-    set iphost [string tolower $iphost]
-
+    set data [::zapdnsbl::getIpHost $host]
+    if {[dict get $data iphost] == 0} { return 1 }
     dict set data host $host
-    dict set data iphost $iphost
     dict set data channel $channel
     dict set data nick $nick
     dict set data pub 0
 
-    dnslookup $iphost ::zapdnsbl::resolveCallback $data
+    dnslookup [dict get $data iphost] ::zapdnsbl::resolveCallback $data
+}
+
+proc ::zapdnsbl::getIpHost { host } {
+    if {[::ini::exists $::zapdnsbl::ini global webirc_hosts]} {
+        set pattern [::ini::value $::zapdnsbl::ini global webirc_hosts]
+        ::zapdnsbl::debug "Using webirc_host pattern $pattern"
+    }
+    if {[string first "@" $host] == -1} {
+        ::zapdnsbl::debug "Are we here?"
+        set iphost [string tolower $host]
+    } elseif {[info exists pattern] && [regexp -nocase "^\[A-F0-9\]{8}@$pattern$" $host]} {
+        ::zapdnsbl::debug "Matching webirc host ($host)"
+        regexp "(.+)@.+" $host -> hex
+        dict set data ident $hex
+        set iphost [::zapdnsbl::getIPFromHex $hex]
+    } else {
+        regexp ".+@(.+)" $host -> iphost
+        set iphost [string tolower $iphost]
+    }
+    ::zapdnsbl::debug "Checking ip $iphost"
+    dict set data iphost $iphost
+    return $data
 }
 
 proc ::zapdnsbl::resolveCallback { ip hostname status data } {
@@ -178,8 +198,8 @@ proc ::zapdnsbl::resolveCallback { ip hostname status data } {
     set reverseIp "$oct4.$oct3.$oct2.$oct1"
 
     foreach bl [::ini::sections $::zapdnsbl::ini] {
-        ::zapdnsbl::debug "Trying blacklist $bl ($ip)"
         if {[regexp {^bl\:} $bl]} {
+            ::zapdnsbl::debug "Trying blacklist $bl ($ip)"
             set dnsbl [lindex [split $bl ":"] end]
             dict set data blacklist $bl
             dict set data ip $ip
@@ -201,10 +221,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
     set channel [dict get $data channel]
     set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $status $data]
 
-    regexp ".+@(.+)" $host -> iphost
-
     if {[dict get $dnsblData status] == "FOUND" } {
-        if {[matchban "*!*@$iphost" $channel]} { return 1 }
        # Check if unknown is enabled or abort
         if {![::zapdnsbl::isBanUnknownEnabled "bl:[dict get $dnsblData blacklist]"] && [dict get $dnsblData reason] == "Unknown"} {
             ::zapdnsbl::debug "Host '[dict get $dnsblData hostname] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]', will not ban because ban_unknown is set to false"
@@ -216,19 +233,28 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
             putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
             set bantime 120
         }
-        newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+
+        if {[dict exists $data ident]} {
+            regexp {(.+)@[^\.]+\.(.+)} $host -> hex webHost
+            if {[matchban $channel "*!@hex@*.$webHost" $channel]} { return 1 }
+            newchanban $channel "*!$hex@*.$webHost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+        } else {
+            regexp ".+@(.+)" $host -> iphost
+            if {[matchban "*!*@$iphost" $channel]} { return 1 }
+            newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+        }
         putlog "$::zapdnsbl::name - Host '[dict get $data host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
-        return 1
    }
-    ::zapdnsbl::debug "Host '$iphost' was not found in any blacklist, status [dict get $dnsblData status] - [dict get $data ip] - channel $channel"
 }
 
 # Dcc command to check if ip/hostname appear in a DNS blacklist
 proc ::zapdnsbl::dccCheckDnsbl { nick idx host } {
+    set data [::zapdnsbl::getIpHost $host]
+    dict set data host $host
     dict set data idx $idx
     dict set data pub 2
 
-    dnslookup $host ::zapdnsbl::resolveCallback $data
+    dnslookup [dict get $data iphost] ::zapdnsbl::resolveCallback $data
 }
 
 proc ::zapdnsbl::dnsblDccCallback { ip hostname status data } {
@@ -237,7 +263,7 @@ proc ::zapdnsbl::dnsblDccCallback { ip hostname status data } {
     set dnsblData [::zapdnsbl::getDnsblData $ip $hostname $status $data]
 
     if {[dict get $dnsblData status] == "FOUND"} {
-        putidx $idx "$::zapdnsbl::name - Host [dict get $data ip] ([dict get $data hostname]) found in $bl reason '[dict get $dnsblData reason]'"
+        putidx $idx "$::zapdnsbl::name - Host [dict get $data host] ([dict get $data ip]) found in $bl reason '[dict get $dnsblData reason]'"
     }
 }
 
@@ -370,6 +396,22 @@ proc ::zapdnsbl::getBanReason { bl } {
 proc ::zapdnsbl::isBanUnknownEnabled { bl } {
     if {[::ini::exists $::zapdnsbl::ini $bl ban_unknown] && [string tolower [::ini::value $::zapdnsbl::ini $bl ban_unknown]] == "true"} {
         return 1
+    }
+    return 0
+}
+
+# Translate hex string to ip
+proc ::zapdnsbl::getIPFromHex { hex } {
+    # Simple check to validate proper hex string
+    if {[regexp {^[a-fA-F0-9]{8}$} $hex]} {
+        set dec [expr 0x$hex]
+        set octets [list]
+        lappend octets [expr {($dec >> 24) & 0xff}]
+        lappend octets [expr {($dec >> 16) & 0xff}]
+        lappend octets [expr {($dec >> 8) & 0xff}]
+        lappend octets [expr {$dec & 0xff}]
+
+        return [join $octets "."]
     }
     return 0
 }

@@ -1,3 +1,7 @@
+[global]
+# Regex to match webirc hosts using ident containing hex encoded client ip (<hex>@<host>)
+webirc_hosts=.*(\.mibbit.com|\.kiwiirc\.com)
+
 [bl:dnsbl.dronebl.org]
 ban_unknown=false
 default_ban_message=Your host is listed in the DroneBL (%reason%). http://dronebl.org/lookup_branded.do?ip=%ip% for info.
