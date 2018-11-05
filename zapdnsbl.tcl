@@ -79,7 +79,7 @@ bind join - * ::zapdnsbl::onJoin
 bind dcc - zapblcheck ::zapdnsbl::dccCheckDnsbl
 bind dcc m|o zapblconfig ::zapdnsbl::dccConfig
 bind dcc - help ::stderreu::help
-bind pub - !dnsbl ::zapdnsbl::pubCheckDnsbl
+bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
 
 # Print debug
 proc ::zapdnsbl::debug { text } {
