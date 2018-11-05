@@ -232,7 +232,7 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
         set bantime [channel get $channel zapdnsbl.bantime]
         if {$bantime == 0} {
             putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
-            set bantime 0
+            set bantime 120
         }
 
         if {[dict exists $data ident]} {
