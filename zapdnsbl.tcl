@@ -50,7 +50,7 @@
 if {[namespace exists ::zapdnsbl]} {namespace delete ::zapdnsbl}
 namespace eval ::zapdnsbl {
     # Path to configuration file
-    variable inifile "scripts/zapdnsbl/zapdnsbl.ini"
+    variable inifile "scripts/zapdnsbl.ini"
 
     # Set console output flag, for debug purpose (default d, ie .console +d)
     variable conflag d
@@ -63,6 +63,7 @@ namespace eval ::zapdnsbl {
 setudef flag zapdnsbl
 setudef flag zapdnsbl.pubcmd
 setudef int zapdnsbl.bantime
+setudef flag zapdnsbl.xonly
 
 # Packages
 package require Tcl 8.5
@@ -78,7 +79,7 @@ bind join - * ::zapdnsbl::onJoin
 bind dcc - zapblcheck ::zapdnsbl::dccCheckDnsbl
 bind dcc m|o zapblconfig ::zapdnsbl::dccConfig
 bind dcc - help ::stderreu::help
-bind pub - !zapblcheck ::zapdnsbl::pubCheckDnsbl
+bind pub - !dnsbl ::zapdnsbl::pubCheckDnsbl
 
 # Print debug
 proc ::zapdnsbl::debug { text } {
@@ -149,7 +150,7 @@ proc ::zapdnsbl::onJoin { nick host handle channel } {
     if {![channel get $channel zapdnsbl]} { return 1 }
 
     # Exclude ops, voice, friends
-    if {[matchattr $handle fov|fov $channel]} {
+    if {[matchattr $handle nmo|HAagMOVSo $channel]} {
         putlog  "$::zapdnsbl::name - $nick is on exempt list"
         return 1
     }
@@ -231,18 +232,28 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
         set bantime [channel get $channel zapdnsbl.bantime]
         if {$bantime == 0} {
             putlog "$::zapdnsbl::name - Bantime not set, defaulting to 120 minutes, set with .chanset $channel zapdnsbl.bantime <integer>."
-            set bantime 120
+            set bantime 0
         }
 
         if {[dict exists $data ident]} {
             regexp {(.+)@[^\.]+\.(.+)} $host -> hex webHost
-            if {[matchban "*!$hex@*.$webHost" $channel]} { return 1 }
-            newchanban $channel "*!$hex@*.$webHost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
-        } else {
+            if {[matchban "*!@hex@*.$webHost" $channel]} { return 1 }
+if {[channel get $channel zapdnsbl.xonly] && [onchan "X" $channel]} {           
+			putquick "PRIVMSG X :ban $channel *!$hex@* $bantime [dict get $dnsblData banreason]"
+} else {
+		   newchanban $channel "*!$hex@*" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+
+}       
+	   } else {
             regexp ".+@(.+)" $host -> iphost
             if {[matchban "*!*@$iphost" $channel]} { return 1 }
-            newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
-        }
+if {[channel get $channel zapdnsbl.xonly] && [onchan "X" $channel]} {            
+			putquick "PRIVMSG X :ban $channel *!*@$iphost $bantime [dict get $dnsblData banreason]"
+} else {
+			newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+			}
+		}
+		
         putlog "$::zapdnsbl::name - Host '[dict get $data host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
    }
 }
