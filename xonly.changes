@@ -1,0 +1,5 @@
+if {[channel get $channel zapdnsbl.xonly] && [onchan "X" $channel]} {           
+			putquick "PRIVMSG X :ban $channel *!$hex@* $bantime [dict get $dnsblData banreason]"
+      
+if {[channel get $channel zapdnsbl.xonly] && [onchan "X" $channel]} {            
+			putquick "PRIVMSG X :ban $channel *!*@$iphost $bantime [dict get $dnsblData banreason]"
