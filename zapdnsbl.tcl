@@ -188,12 +188,12 @@ proc ::zapdnsbl::getIpHost { host } {
 
 proc ::zapdnsbl::resolveCallback { ip hostname status data } {
     # DNS lookup successfull?
-    if {[::ip::is ipv6 $hostname]} {
+    if {[::ip::is ipv6 $ip]} {
         ::zapdnsbl::debug "IPv6 support not implemented. No further action taken for '$hostname'."
         return 0
     }
 
-    if {$status == 0 && ![::ip::is ipv4 $hostname]} {
+    if {$status == 0 && ![::ip::is ipv4 $ip]} {
         ::zapdnsbl::debug "Couldn't resolve '$hostname'. No further action taken."
         return 0
     }
