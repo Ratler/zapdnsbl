@@ -62,6 +62,7 @@ namespace eval ::zapdnsbl {
 # Channel flags
 setudef flag zapdnsbl
 setudef flag zapdnsbl.pubcmd
+setudef flag zapdnsbl.xonly
 setudef int zapdnsbl.bantime
 
 # Packages
@@ -241,13 +242,21 @@ proc ::zapdnsbl::dnsblCallback { ip hostname status data } {
 
         if {[dict exists $data ident]} {
             regexp {(.+)@[^\.]+\.(.+)} $host -> hex webHost
-            if {[matchban "*!$hex@*.$webHost" $channel]} { return 1 }
-            newchanban $channel "*!$hex@*.$webHost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
-        } else {
+            if {[matchban "*!@hex@*.$webHost" $channel]} { return 1 }
+if {[channel get $channel zapdnsbl.xonly] && [onchan "X" $channel]} {           
+			putquick "PRIVMSG X :ban $channel *!$hex@* $bantime [dict get $dnsblData banreason]"
+} else {
+		   newchanban $channel "*!$hex@*" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+}       
+	   } else {
             regexp ".+@(.+)" $host -> iphost
             if {[matchban "*!*@$iphost" $channel]} { return 1 }
-            newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
-        }
+if {[channel get $channel zapdnsbl.xonly] && [onchan "X" $channel]} {            
+			putquick "PRIVMSG X :ban $channel *!*@$iphost $bantime [dict get $dnsblData banreason]"
+} else {
+			newchanban $channel "*!*@$iphost" $::zapdnsbl::name [dict get $dnsblData banreason] $bantime
+			}
+		}
         putlog "$::zapdnsbl::name - Host '[dict get $data host] ([dict get $data ip])' found in [dict get $dnsblData blacklist] reason '[dict get $dnsblData reason]' on channel '$channel', banning with reason '[dict get $dnsblData banreason]'!"
    }
 }
